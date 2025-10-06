@@ -14,16 +14,10 @@ from src.utils import (
     get_country_info, 
     get_year_columns,
     calculate_mean_for_years,
-    get_countries_by_category,
-    get_countries_by_bottleneck,
-    filter_data
 )
 from src.visualizations import (
     create_choropleth_map,
     create_component_breakdown_chart,
-    create_radar_chart,
-    create_time_series_chart,
-    create_bottleneck_chart
 )
 
 
@@ -39,23 +33,43 @@ st.set_page_config(
 st.markdown("""
     <style>
     .main-header {
-        font-size: 3rem;
+        font-size: 2.5rem;
         font-weight: bold;
         color: #2c3e50;
         text-align: center;
-        padding: 1rem 0;
+        padding: 0.5rem 0;
+        margin-bottom: 0;
     }
     .sub-header {
-        font-size: 1.2rem;
+        font-size: 1rem;
         color: #7f8c8d;
         text-align: center;
-        padding-bottom: 2rem;
+        padding-bottom: 1rem;
+        margin-top: 0;
     }
-    .metric-card {
+    .country-panel {
         background-color: #f8f9fa;
-        padding: 1rem;
+        padding: 1.5rem;
         border-radius: 10px;
         border-left: 5px solid #3498db;
+        height: 100%;
+    }
+    .metric-box {
+        background-color: white;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 0.5rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .component-label {
+        font-size: 0.9rem;
+        color: #7f8c8d;
+        margin-bottom: 0.25rem;
+    }
+    .component-value {
+        font-size: 1.8rem;
+        font-weight: bold;
+        color: #2c3e50;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -65,6 +79,44 @@ st.markdown("""
 def load_data():
     """Load all processed data with caching."""
     return load_processed_data()
+
+
+def calculate_year_range_averages(timeseries_df, year_range, metric_name):
+    """
+    Calculate average values for each country over a year range.
+    
+    Parameters:
+    -----------
+    timeseries_df : pd.DataFrame
+        Time series data
+    year_range : tuple
+        (start_year, end_year)
+    metric_name : str
+        Name of the metric being calculated
+    
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with ISO3, Country, and Mean_Value columns
+    """
+    if timeseries_df is None or timeseries_df.empty:
+        return pd.DataFrame(columns=['ISO3', 'Country', 'Mean_Value'])
+    
+    # Get columns for the selected year range
+    selected_year_cols = get_year_columns(
+        timeseries_df, 
+        start_year=year_range[0], 
+        end_year=year_range[1]
+    )
+    
+    if not selected_year_cols:
+        return pd.DataFrame(columns=['ISO3', 'Country', 'Mean_Value'])
+    
+    # Calculate mean across selected years
+    result = timeseries_df[['ISO3', 'Country']].copy()
+    result['Mean_Value'] = timeseries_df[selected_year_cols].mean(axis=1)
+    
+    return result
 
 
 def main():
@@ -82,14 +134,41 @@ def main():
         
         if components_df is None or components_df.empty:
             st.error("❌ No processed data found. Please run the data processing script first.")
-            st.code("python src/data_processing.py")
+            st.code("python3 src/data_processing.py")
             return
             
     except Exception as e:
         st.error(f"❌ Error loading data: {str(e)}")
         return
     
-    # Sidebar - Filters
+    # Initialize session state for selected country
+    if 'selected_country' not in st.session_state:
+        st.session_state.selected_country = None
+    
+    # ============================================================================
+    # LEFT SIDEBAR - Map Controls
+    # ============================================================================
+    st.sidebar.header("📊 Map Visualization")
+    
+    # What to visualize on the map
+    viz_metric = st.sidebar.radio(
+        "Display Metric",
+        ['HDI', 'Health Index', 'Education Index', 'Income Index'],
+        help="Choose which metric to visualize on the map"
+    )
+    
+    # Map metric to column name and time series key
+    metric_config = {
+        'HDI': {'ts_key': 'hdi', 'label': 'HDI'},
+        'Health Index': {'ts_key': 'life_expectancy', 'label': 'Health Index'},
+        'Education Index': {'ts_key': 'mean_schooling', 'label': 'Education Index'},
+        'Income Index': {'ts_key': 'gni', 'label': 'Income Index'}
+    }
+    
+    current_config = metric_config[viz_metric]
+    ts_key = current_config['ts_key']
+    
+    st.sidebar.markdown("---")
     st.sidebar.header("🎯 Filters")
     
     # Filter by HDI Category
@@ -119,25 +198,7 @@ def main():
         help="Show countries where this component is the limiting factor"
     )
     
-    # What to visualize
-    st.sidebar.header("📊 Visualization Options")
-    viz_metric = st.sidebar.radio(
-        "Display on Map",
-        ['HDI', 'Health Index', 'Education Index', 'Income Index', 'Component Gap'],
-        help="Choose which metric to visualize on the map"
-    )
-    
-    # Map metric to column name
-    metric_column_map = {
-        'HDI': 'HDI',
-        'Health Index': 'Health_Index',
-        'Education Index': 'Education_Index',
-        'Income Index': 'Income_Index',
-        'Component Gap': 'Component_Gap'
-    }
-    display_column = metric_column_map[viz_metric]
-    
-    # Apply filters
+    # Apply filters to components_df
     filtered_df = components_df.copy()
     
     if selected_category != 'All':
@@ -149,156 +210,287 @@ def main():
     if selected_bottleneck != 'All':
         filtered_df = filtered_df[filtered_df['Bottleneck_Component'] == selected_bottleneck]
     
-    # Year Range Slider (at the bottom of filters)
-    st.sidebar.header("📅 Time Range")
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"**Showing {len(filtered_df)} of {len(components_df)} countries**")
     
-    # Get available years from time series data
-    if 'hdi' in timeseries_data and not timeseries_data['hdi'].empty:
-        year_cols = get_year_columns(timeseries_data['hdi'])
-        available_years = sorted([int(col.split('(')[1].split(')')[0]) for col in year_cols])
+    # ============================================================================
+    # MAIN CONTENT AREA - Map and Year Slider
+    # ============================================================================
+    
+    # Create two columns: map area (70%) and right panel (30%)
+    col_map, col_right = st.columns([7, 3])
+    
+    with col_map:
+        st.header(f"🗺️ {viz_metric} by Country")
         
-        if len(available_years) >= 2:
-            year_range = st.sidebar.slider(
-                "Select Year Range",
-                min_value=min(available_years),
-                max_value=max(available_years),
-                value=(min(available_years), max(available_years)),
-                help="Select year range to calculate average HDI"
-            )
+        # Get available years for the slider
+        if ts_key in timeseries_data and not timeseries_data[ts_key].empty:
+            year_cols = get_year_columns(timeseries_data[ts_key])
+            available_years = sorted([int(col.split('(')[1].split(')')[0]) for col in year_cols])
             
-            # Calculate mean HDI for selected year range
-            selected_year_cols = get_year_columns(
-                timeseries_data['hdi'], 
-                start_year=year_range[0], 
-                end_year=year_range[1]
-            )
-            
-            if selected_year_cols:
-                mean_hdi_df = calculate_mean_for_years(timeseries_data['hdi'], selected_year_cols)
+            if len(available_years) >= 2:
+                # Year Range Slider UNDER THE MAP
+                year_range = st.slider(
+                    "📅 Select Year Range",
+                    min_value=min(available_years),
+                    max_value=max(available_years),
+                    value=(min(available_years), max(available_years)),
+                    help="Drag to select year range. Map shows average values for this period."
+                )
+                
+                # Calculate averages for the selected year range
+                if viz_metric == 'HDI':
+                    # Direct HDI values
+                    avg_df = calculate_year_range_averages(
+                        timeseries_data['hdi'], 
+                        year_range, 
+                        'HDI'
+                    )
+                    display_column = 'Mean_Value'
+                    
+                elif viz_metric == 'Health Index':
+                    # Calculate from life expectancy
+                    life_exp_avg = calculate_year_range_averages(
+                        timeseries_data['life_expectancy'], 
+                        year_range, 
+                        'Life Expectancy'
+                    )
+                    # Normalize to index
+                    life_exp_avg['Mean_Value'] = (life_exp_avg['Mean_Value'] - 20) / (85 - 20)
+                    life_exp_avg['Mean_Value'] = life_exp_avg['Mean_Value'].clip(0, 1)
+                    avg_df = life_exp_avg
+                    display_column = 'Mean_Value'
+                    
+                elif viz_metric == 'Education Index':
+                    # Average of mean and expected schooling
+                    mean_school_avg = calculate_year_range_averages(
+                        timeseries_data['mean_schooling'], 
+                        year_range, 
+                        'Mean Schooling'
+                    )
+                    expected_school_avg = calculate_year_range_averages(
+                        timeseries_data['expected_schooling'], 
+                        year_range, 
+                        'Expected Schooling'
+                    )
+                    # Calculate education index
+                    avg_df = mean_school_avg.copy()
+                    avg_df['Mean_Value'] = (
+                        (mean_school_avg['Mean_Value'] / 18 + 
+                         expected_school_avg['Mean_Value'] / 18) / 2
+                    ).clip(0, 1)
+                    display_column = 'Mean_Value'
+                    
+                elif viz_metric == 'Income Index':
+                    # Calculate from GNI
+                    gni_avg = calculate_year_range_averages(
+                        timeseries_data['gni'], 
+                        year_range, 
+                        'GNI'
+                    )
+                    # Normalize to index using log
+                    gni_avg['Mean_Value'] = (
+                        (np.log(gni_avg['Mean_Value']) - np.log(100)) / 
+                        (np.log(75000) - np.log(100))
+                    ).clip(0, 1)
+                    avg_df = gni_avg
+                    display_column = 'Mean_Value'
                 
                 # Merge with filtered data
-                filtered_df = filtered_df.merge(
-                    mean_hdi_df[['ISO3', 'Mean_Value']], 
+                map_df = filtered_df.merge(
+                    avg_df[['ISO3', 'Mean_Value']], 
                     on='ISO3', 
                     how='left'
                 )
                 
-                # Display statistics for selected range
-                global_mean = mean_hdi_df['Mean_Value'].mean()
-                filtered_mean = filtered_df['Mean_Value'].mean()
+                # Display statistics
+                col_stat1, col_stat2, col_stat3 = st.columns(3)
                 
-                st.sidebar.metric(
-                    label=f"Global Mean HDI ({year_range[0]}-{year_range[1]})",
-                    value=f"{global_mean:.3f}"
-                )
-                
-                if len(filtered_df) < len(components_df):
-                    st.sidebar.metric(
-                        label=f"Filtered Mean HDI ({year_range[0]}-{year_range[1]})",
-                        value=f"{filtered_mean:.3f}",
-                        delta=f"{filtered_mean - global_mean:.3f}"
+                with col_stat1:
+                    global_mean = avg_df['Mean_Value'].mean()
+                    st.metric(
+                        f"Global Avg ({year_range[0]}-{year_range[1]})",
+                        f"{global_mean:.3f}"
                     )
+                
+                with col_stat2:
+                    filtered_mean = map_df['Mean_Value'].mean()
+                    st.metric(
+                        f"Filtered Avg",
+                        f"{filtered_mean:.3f}",
+                        delta=f"{filtered_mean - global_mean:+.3f}"
+                    )
+                
+                with col_stat3:
+                    st.metric(
+                        "Countries Shown",
+                        len(map_df)
+                    )
+                
+                # Create the map with proper color scaling
+                if not map_df.empty and 'Mean_Value' in map_df.columns:
+                    # Calculate min/max for better color distribution
+                    valid_values = map_df['Mean_Value'].dropna()
+                    if len(valid_values) > 0:
+                        data_min = valid_values.min()
+                        data_max = valid_values.max()
+                        
+                        # Add some padding to make colors more distinguishable
+                        value_range = data_max - data_min
+                        color_min = max(0, data_min - value_range * 0.1)
+                        color_max = min(1, data_max + value_range * 0.1)
+                        
+                        color_scales = {
+                            'HDI': 'RdYlGn',
+                            'Health Index': 'Reds',
+                            'Education Index': 'Blues',
+                            'Income Index': 'Greens',
+                        }
+                        
+                        fig_map = create_choropleth_map(
+                            map_df,
+                            value_column=display_column,
+                            title=f"{viz_metric} Average ({year_range[0]}-{year_range[1]})",
+                            color_scale=color_scales.get(viz_metric, 'RdYlGn'),
+                            range_color=(color_min, color_max)
+                        )
+                        
+                        # Update the map to be larger
+                        fig_map.update_layout(height=650)
+                        
+                        st.plotly_chart(fig_map, use_container_width=True, key='main_map')
+                        
+                        # Instructions for clicking
+                        st.info("💡 **Tip**: Click on a country on the map to view detailed statistics in the right panel →")
+                        
+                    else:
+                        st.warning("⚠️ No valid data to display for the selected filters.")
+                else:
+                    st.warning("⚠️ No countries match the selected filters.")
+                    
+            else:
+                st.error("Not enough time series data available.")
         else:
-            year_range = None
-    else:
-        year_range = None
+            st.error(f"Time series data not available for {viz_metric}")
     
-    # Main content area
-    st.sidebar.markdown("---")
-    st.sidebar.markdown(f"**Showing {len(filtered_df)} of {len(components_df)} countries**")
-    
-    # Display the map
-    st.header(f"🗺️ World Map: {viz_metric}")
-    
-    if not filtered_df.empty:
-        try:
-            # Create the choropleth map
-            color_scales = {
-                'HDI': 'RdYlGn',
-                'Health Index': 'Reds',
-                'Education Index': 'Blues',
-                'Income Index': 'Greens',
-                'Component Gap': 'YlOrRd'
-            }
-            
-            fig_map = create_choropleth_map(
-                filtered_df,
-                value_column=display_column,
-                title=f"{viz_metric} by Country",
-                color_scale=color_scales.get(viz_metric, 'RdYlGn'),
-                range_color=(0, 1) if viz_metric != 'Component Gap' else None
-            )
-            
-            st.plotly_chart(fig_map, use_container_width=True)
-            
-        except Exception as e:
-            st.error(f"Error creating map: {str(e)}")
-    else:
-        st.warning("⚠️ No countries match the selected filters.")
-    
-    # Summary Statistics
-    st.header("📈 Summary Statistics")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        avg_hdi = filtered_df['HDI'].mean()
-        st.metric("Average HDI", f"{avg_hdi:.3f}")
-    
-    with col2:
-        avg_health = filtered_df['Health_Index'].mean()
-        st.metric("Avg Health Index", f"{avg_health:.3f}")
-    
-    with col3:
-        avg_education = filtered_df['Education_Index'].mean()
-        st.metric("Avg Education Index", f"{avg_education:.3f}")
-    
-    with col4:
-        avg_income = filtered_df['Income_Index'].mean()
-        st.metric("Avg Income Index", f"{avg_income:.3f}")
-    
-    # Bottleneck Analysis
-    st.header("🔍 Bottleneck Analysis")
-    
-    col_left, col_right = st.columns([1, 1])
-    
-    with col_left:
-        if not filtered_df.empty and 'Bottleneck_Component' in filtered_df.columns:
-            bottleneck_fig = create_bottleneck_chart(filtered_df)
-            st.plotly_chart(bottleneck_fig, use_container_width=True)
-    
+    # ============================================================================
+    # RIGHT PANEL - Country Details
+    # ============================================================================
     with col_right:
-        if not filtered_df.empty:
-            st.subheader("Bottleneck Distribution")
-            bottleneck_counts = filtered_df['Bottleneck_Component'].value_counts()
-            
-            for component, count in bottleneck_counts.items():
-                percentage = (count / len(filtered_df)) * 100
-                st.write(f"**{component}**: {count} countries ({percentage:.1f}%)")
-    
-    # Data Table
-    with st.expander("📋 View Detailed Data Table"):
-        display_columns = ['Country', 'HDI', 'HDI_Category', 'Health_Index', 
-                          'Education_Index', 'Income_Index', 'Bottleneck_Component']
+        st.markdown("### 📍 Country Details")
         
-        # Add Mean_Value if it exists
-        if 'Mean_Value' in filtered_df.columns:
-            display_columns.insert(2, 'Mean_Value')
-        
-        available_columns = [col for col in display_columns if col in filtered_df.columns]
-        
-        st.dataframe(
-            filtered_df[available_columns].sort_values('HDI', ascending=False),
-            use_container_width=True,
-            height=400
+        # Country selector (dropdown as fallback to clicking)
+        country_list = ['Select a country...'] + sorted(filtered_df['Country'].unique().tolist())
+        selected_country = st.selectbox(
+            "Select country:",
+            country_list,
+            key='country_selector',
+            help="Select a country to view its details"
         )
+        
+        if selected_country and selected_country != 'Select a country...':
+            # Get country info
+            country_data = get_country_info(map_df, selected_country)
+            
+            if country_data is not None:
+                st.markdown(f"""
+                <div class="country-panel">
+                    <h2 style="margin-top: 0; color: #2c3e50;">{country_data['Country']}</h2>
+                    <p style="color: #7f8c8d; margin-bottom: 1.5rem;">
+                        <strong>Category:</strong> {country_data.get('HDI_Category', 'N/A')}<br>
+                        <strong>Period:</strong> {year_range[0]}-{year_range[1]}
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown("#### 📊 HDI Components")
+                
+                # Display the three components
+                components_to_show = [
+                    ('Health Index', 'Health_Index', '#e74c3c', '❤️'),
+                    ('Education Index', 'Education_Index', '#3498db', '📚'),
+                    ('Income Index', 'Income_Index', '#2ecc71', '💰')
+                ]
+                
+                for label, col_name, color, icon in components_to_show:
+                    if col_name in country_data:
+                        value = country_data[col_name]
+                        st.markdown(f"""
+                        <div class="metric-box">
+                            <div class="component-label">{icon} {label}</div>
+                            <div class="component-value" style="color: {color};">{value:.3f}</div>
+                            <div style="background: linear-gradient(to right, {color} {value*100}%, #ecf0f1 {value*100}%); 
+                                 height: 8px; border-radius: 4px; margin-top: 0.5rem;"></div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                # HDI Value
+                st.markdown("#### 🌟 Overall HDI")
+                if 'HDI' in country_data:
+                    hdi_value = country_data['HDI']
+                    st.markdown(f"""
+                    <div class="metric-box">
+                        <div class="component-value" style="color: #9b59b6;">{hdi_value:.3f}</div>
+                        <div style="font-size: 0.85rem; color: #7f8c8d; margin-top: 0.5rem;">
+                            Based on {year_range[1]} data
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Bottleneck Analysis
+                st.markdown("#### 🔍 Bottleneck Analysis")
+                if 'Bottleneck_Component' in country_data:
+                    bottleneck = country_data['Bottleneck_Component']
+                    bottleneck_value = country_data.get('Bottleneck_Value', 'N/A')
+                    
+                    bottleneck_icons = {
+                        'Health': '❤️',
+                        'Education': '📚',
+                        'Income': '💰'
+                    }
+                    
+                    st.markdown(f"""
+                    <div class="metric-box" style="border-left: 5px solid #e74c3c;">
+                        <div style="font-size: 1rem; color: #e74c3c; font-weight: bold;">
+                            {bottleneck_icons.get(bottleneck, '⚠️')} {bottleneck}
+                        </div>
+                        <div style="font-size: 0.85rem; color: #7f8c8d; margin-top: 0.5rem;">
+                            Lowest component: {bottleneck_value:.3f}
+                        </div>
+                        <div style="font-size: 0.85rem; color: #7f8c8d; margin-top: 0.25rem;">
+                            💡 Improving this component would have the highest impact
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Component comparison chart
+                st.markdown("#### 📈 Component Comparison")
+                if all(col in country_data for col in ['Health_Index', 'Education_Index', 'Income_Index']):
+                    fig_components = create_component_breakdown_chart(
+                        country_data['Health_Index'],
+                        country_data['Education_Index'],
+                        country_data['Income_Index'],
+                        country_data['Country']
+                    )
+                    fig_components.update_layout(height=300)
+                    st.plotly_chart(fig_components, use_container_width=True)
+                
+            else:
+                st.warning("Country data not found.")
+        else:
+            st.markdown("""
+            <div class="country-panel">
+                <p style="text-align: center; color: #7f8c8d; padding: 2rem;">
+                    👈 Select a country from the dropdown above or click on the map to view detailed statistics
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
     
     # Footer
     st.markdown("---")
     st.markdown("""
-        <div style='text-align: center; color: #7f8c8d;'>
-            <p>Data Source: United Nations Development Programme (UNDP)</p>
-            <p>HDI Explorer | Interactive Human Development Index Visualization Tool</p>
+        <div style='text-align: center; color: #7f8c8d; font-size: 0.85rem;'>
+            <p>Data Source: United Nations Development Programme (UNDP) | HDI Explorer v1.0</p>
         </div>
     """, unsafe_allow_html=True)
 
