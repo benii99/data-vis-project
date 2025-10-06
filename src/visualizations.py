@@ -10,7 +10,7 @@ import numpy as np
 
 
 def create_choropleth_map(df, value_column='HDI', title='Human Development Index', 
-                         color_scale='RdYlGn', range_color=None):
+                         color_scale='RdYlGn', range_color=None, selected_country=None):
     """
     Create an interactive choropleth map showing HDI or component values by country.
     
@@ -26,6 +26,8 @@ def create_choropleth_map(df, value_column='HDI', title='Human Development Index
         Plotly color scale (default: 'RdYlGn' - Red-Yellow-Green)
     range_color : tuple or None
         (min, max) for color scale. If None, uses data range.
+    selected_country : str or None
+        ISO3 code of selected country to highlight
     
     Returns:
     --------
@@ -43,7 +45,19 @@ def create_choropleth_map(df, value_column='HDI', title='Human Development Index
     # Create hover text with more information
     hover_template = '<b>%{customdata[0]}</b><br>'
     hover_template += f'{title}: %{{z:.3f}}<br>'
+    hover_template += '🖱️ Click to view details<br>'
     hover_template += '<extra></extra>'
+    
+    # Determine line width - highlight selected country
+    line_widths = []
+    line_colors = []
+    for iso3 in df_plot['ISO3']:
+        if selected_country and iso3 == selected_country:
+            line_widths.append(3)
+            line_colors.append('#2c3e50')
+        else:
+            line_widths.append(0.5)
+            line_colors.append('darkgray')
     
     # Create the choropleth map
     fig = go.Figure(data=go.Choropleth(

@@ -347,21 +347,52 @@ def main():
                             'Income Index': 'Greens',
                         }
                         
+                        # Get ISO3 of selected country
+                        selected_iso3 = None
+                        if st.session_state.selected_country:
+                            selected_data = map_df[map_df['Country'] == st.session_state.selected_country]
+                            if not selected_data.empty:
+                                selected_iso3 = selected_data.iloc[0]['ISO3']
+                        
                         fig_map = create_choropleth_map(
                             map_df,
                             value_column=display_column,
                             title=f"{viz_metric} Average ({year_range[0]}-{year_range[1]})",
                             color_scale=color_scales.get(viz_metric, 'RdYlGn'),
-                            range_color=(color_min, color_max)
+                            range_color=(color_min, color_max),
+                            selected_country=selected_iso3
                         )
                         
                         # Update the map to be larger
-                        fig_map.update_layout(height=650)
+                        fig_map.update_layout(
+                            height=650,
+                            clickmode='event+select'
+                        )
                         
-                        st.plotly_chart(fig_map, use_container_width=True, key='main_map')
+                        # Display map with selection enabled
+                        selected_points = st.plotly_chart(
+                            fig_map, 
+                            use_container_width=True, 
+                            key='main_map',
+                            on_select="rerun",
+                            selection_mode="points"
+                        )
+                        
+                        # Capture click events
+                        if selected_points and hasattr(selected_points, 'selection') and selected_points.selection:
+                            if 'points' in selected_points.selection and len(selected_points.selection['points']) > 0:
+                                # Get the clicked point
+                                clicked_point = selected_points.selection['points'][0]
+                                if 'location' in clicked_point:
+                                    clicked_iso3 = clicked_point['location']
+                                    # Find country name from ISO3
+                                    clicked_country_data = map_df[map_df['ISO3'] == clicked_iso3]
+                                    if not clicked_country_data.empty:
+                                        st.session_state.selected_country = clicked_country_data.iloc[0]['Country']
+                                        st.rerun()
                         
                         # Instructions for clicking
-                        st.info("💡 **Tip**: Click on a country on the map to view detailed statistics in the right panel →")
+                        st.info("🖱️ **Click any country on the map** to view its detailed statistics in the right panel →")
                         
                     else:
                         st.warning("⚠️ No valid data to display for the selected filters.")
@@ -379,18 +410,35 @@ def main():
     with col_right:
         st.markdown("### 📍 Country Details")
         
-        # Country selector (dropdown as fallback to clicking)
+        # Determine which country to display (prioritize session state from map click)
+        display_country = None
+        
+        # Check if we have a country selected from map click
+        if st.session_state.selected_country and st.session_state.selected_country in filtered_df['Country'].values:
+            display_country = st.session_state.selected_country
+            default_index = sorted(filtered_df['Country'].unique().tolist()).index(st.session_state.selected_country) + 1
+        else:
+            default_index = 0
+        
+        # Country selector (manual selection option)
         country_list = ['Select a country...'] + sorted(filtered_df['Country'].unique().tolist())
-        selected_country = st.selectbox(
-            "Select country:",
+        dropdown_selection = st.selectbox(
+            "Or select manually:",
             country_list,
+            index=default_index,
             key='country_selector',
-            help="Select a country to view its details"
+            help="Select a country manually or click on the map"
         )
         
-        if selected_country and selected_country != 'Select a country...':
+        # Update display_country if manually selected from dropdown
+        if dropdown_selection != 'Select a country...':
+            display_country = dropdown_selection
+            st.session_state.selected_country = dropdown_selection
+        
+        # Display country details if we have a selection
+        if display_country:
             # Get country info
-            country_data = get_country_info(map_df, selected_country)
+            country_data = get_country_info(map_df, display_country)
             
             if country_data is not None:
                 st.markdown(f"""
@@ -480,8 +528,9 @@ def main():
         else:
             st.markdown("""
             <div class="country-panel">
-                <p style="text-align: center; color: #7f8c8d; padding: 2rem;">
-                    👈 Select a country from the dropdown above or click on the map to view detailed statistics
+                <p style="text-align: center; color: #7f8c8d; padding: 2rem; font-size: 1.1rem;">
+                    🖱️ <strong>Click any country on the map</strong><br><br>
+                    to view detailed HDI statistics and component breakdown
                 </p>
             </div>
             """, unsafe_allow_html=True)
