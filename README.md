@@ -4,6 +4,9 @@
 
 An interactive web application for exploring the Human Development Index (HDI) dataset, focusing on visualizing the impact of the three core components of HDI (Health, Education, and Income) across different countries. The tool provides clustering capabilities to identify patterns and bottlenecks in human development across regions.
 
+![App Screenshot](screenshot.jpeg)
+
+
 ## Project Objectives
 
 - **Interactive Map Visualization**: Navigate through countries with an interactive world map

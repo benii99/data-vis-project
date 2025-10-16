@@ -1,6 +1,6 @@
 # HDI Explorer - Quick Start Guide
 
-## 🚀 Running the Application
+## Running the Application
 
 ### 1. Activate Virtual Environment
 ```bash
@@ -14,7 +14,7 @@ streamlit run app.py
 
 The app will automatically open in your browser at `http://localhost:8501`
 
-## 📊 Features Implemented
+## Features Implemented
 
 ### Interactive World Map
 - **Choropleth visualization** showing HDI or component indices by country
@@ -53,7 +53,7 @@ The app will automatically open in your browser at `http://localhost:8501`
 - Sortable by any column
 - Shows all key metrics
 
-## 🎨 Color Schemes
+## Color Schemes
 
 - **HDI**: Red-Yellow-Green (low to high)
 - **Health Index**: Red gradient
@@ -61,7 +61,7 @@ The app will automatically open in your browser at `http://localhost:8501`
 - **Income Index**: Green gradient
 - **Component Gap**: Yellow-Orange-Red (small to large gaps)
 
-## 💡 Usage Examples
+## Usage Examples
 
 ### Example 1: Find Education Bottlenecks in Africa
 1. Set **Bottleneck Component** to "Education"
@@ -80,7 +80,7 @@ The app will automatically open in your browser at `http://localhost:8501`
 2. Set **Display on Map** to "Component Gap"
 3. Result: Even in highly developed countries, see which have unbalanced development
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### "No processed data found" Error
 Run the data processing script first:
@@ -100,7 +100,7 @@ Specify a different port:
 streamlit run app.py --server.port 8502
 ```
 
-## 📁 File Structure
+## File Structure
 
 ```
 app.py                          # Main Streamlit application
@@ -113,7 +113,7 @@ data/
   └── processed/                # Processed CSV files
 ```
 
-## 🎯 Next Steps
+## Next Steps
 
 You can extend the application with:
 - Country comparison feature
@@ -122,5 +122,5 @@ You can extend the application with:
 - Radar charts comparing countries to regional averages
 - Export functionality for filtered data
 
-Enjoy exploring the Human Development Index! 🌍
+Enjoy exploring the Human Development Index!
 

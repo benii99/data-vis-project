@@ -4,13 +4,13 @@
 
 ### Major Changes
 
-#### 🎨 **Layout Restructure**
+#### **Layout Restructure**
 - **Map is now the main focus** - Takes up 70% of the screen width
 - **Left Sidebar (30%)** - Visualization controls and filters
 - **Right Panel (30%)** - Country details panel (appears when country is selected)
 - Map height increased to 650px for better visibility
 
-#### 🗺️ **Map Improvements**
+#### **Map Improvements**
 
 **1. Time Range Integration**
 - Map now displays **average values** over the selected year range (not just current year)
@@ -29,7 +29,7 @@
   - Filtered Average (with delta from global)
   - Number of countries displayed
 
-#### 📍 **Right Panel - Country Details**
+#### **Right Panel - Country Details**
 
 **New interactive country detail panel showing:**
 
@@ -39,9 +39,9 @@
    - Selected time period
 
 2. **HDI Components Display**
-   - ❤️ Health Index (red)
-   - 📚 Education Index (blue)  
-   - 💰 Income Index (green)
+   - Health Index (red)
+   - Education Index (blue)  
+   - Income Index (green)
    - Each with value, progress bar, and color coding
 
 3. **Overall HDI Score**
@@ -57,7 +57,7 @@
    - Bar chart comparing the three indices
    - Visual reference line for HDI value
 
-#### 🎛️ **Left Sidebar - Simplified Controls**
+#### **Left Sidebar - Simplified Controls**
 
 **Visualization Section:**
 - Radio buttons to select metric (HDI, Health, Education, Income)
@@ -69,7 +69,7 @@
 - Bottleneck Component filter
 - Country count display
 
-#### ⚙️ **Technical Improvements**
+#### **Technical Improvements**
 
 **1. Dynamic Average Calculation**
 ```python
@@ -111,13 +111,13 @@ color_max = min(1, data_max + value_range * 0.1)
 - No way to view country details
 
 #### After:
-- ✅ Clean, focused layout with map as centerpiece
-- ✅ Year slider logically placed under the map
-- ✅ Map shows averages for selected time period
-- ✅ Much better color contrast (0.7 vs 0.9 clearly different)
-- ✅ Rich country detail panel on the right
-- ✅ Easy country selection via dropdown
-- ✅ Real-time statistics update
+- Clean, focused layout with map as centerpiece
+- Year slider logically placed under the map
+- Map shows averages for selected time period
+- Much better color contrast (0.7 vs 0.9 clearly different)
+- Rich country detail panel on the right
+- Easy country selection via dropdown
+- Real-time statistics update
 
 ### How to Use
 
@@ -135,46 +135,4 @@ color_max = min(1, data_max + value_range * 0.1)
    - Select country from dropdown
    - See all component values
    - Identify bottlenecks
-
-### Visual Comparison
-
-**Layout:**
-```
-Before:                          After:
-┌────────┬─────────┐            ┌────────┬──────────────┬──────────┐
-│Sidebar │   Map   │            │Sidebar │     Map      │  Country │
-│  All   │  Full   │            │Controls│   (Large)    │  Details │
-│Controls│ Width   │            │        │   + Slider   │  Panel   │
-│        │         │            │        │              │          │
-└────────┴─────────┘            └────────┴──────────────┴──────────┘
-  30%        70%                  20%         50%           30%
-```
-
-### Breaking Changes
-- None - All previous functionality maintained
-- New features are additive
-
-### Bug Fixes
-- Fixed color scale not showing enough contrast
-- Fixed year slider not affecting map display
-- Fixed missing country detail functionality
-
-### Next Steps (Planned)
-- Add click-to-select on map (Streamlit limitation workaround)
-- Add time series charts in country panel
-- Add country comparison feature
-- Implement clustering visualization
-
----
-
-**How to Update:**
-```bash
-# Pull latest changes
-git pull
-
-# Restart Streamlit
-streamlit run app.py
-```
-
-The app will automatically use the new layout!
 
