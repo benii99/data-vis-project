@@ -229,16 +229,9 @@ def main():
             available_years = sorted([int(col.split('(')[1].split(')')[0]) for col in year_cols])
             
             if len(available_years) >= 2:
-                # Year Range Slider UNDER THE MAP
-                year_range = st.slider(
-                    "📅 Select Year Range",
-                    min_value=min(available_years),
-                    max_value=max(available_years),
-                    value=(min(available_years), max(available_years)),
-                    help="Drag to select year range. Map shows average values for this period."
-                )
+                # Calculate averages for the selected year range (using full range initially)
+                year_range = (min(available_years), max(available_years))
                 
-                # Calculate averages for the selected year range
                 if viz_metric == 'HDI':
                     # Direct HDI values
                     avg_df = calculate_year_range_averages(
@@ -303,30 +296,6 @@ def main():
                     how='left'
                 )
                 
-                # Display statistics
-                col_stat1, col_stat2, col_stat3 = st.columns(3)
-                
-                with col_stat1:
-                    global_mean = avg_df['Mean_Value'].mean()
-                    st.metric(
-                        f"Global Avg ({year_range[0]}-{year_range[1]})",
-                        f"{global_mean:.3f}"
-                    )
-                
-                with col_stat2:
-                    filtered_mean = map_df['Mean_Value'].mean()
-                    st.metric(
-                        f"Filtered Avg",
-                        f"{filtered_mean:.3f}",
-                        delta=f"{filtered_mean - global_mean:+.3f}"
-                    )
-                
-                with col_stat3:
-                    st.metric(
-                        "Countries Shown",
-                        len(map_df)
-                    )
-                
                 # Create the map with proper color scaling
                 if not map_df.empty and 'Mean_Value' in map_df.columns:
                     # Calculate min/max for better color distribution
@@ -390,6 +359,15 @@ def main():
                                     if not clicked_country_data.empty:
                                         st.session_state.selected_country = clicked_country_data.iloc[0]['Country']
                                         st.rerun()
+                        
+                        # Year Range Slider BELOW THE MAP (moved from above)
+                        year_range = st.slider(
+                            "📅 Select Year Range",
+                            min_value=min(available_years),
+                            max_value=max(available_years),
+                            value=(min(available_years), max(available_years)),
+                            help="Drag to select year range. Map shows average values for this period."
+                        )
                         
                         # Instructions for clicking
                         st.info("🖱️ **Click any country on the map** to view its detailed statistics in the right panel →")
