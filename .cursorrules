@@ -1,0 +1,352 @@
+# Subnational HDI Explorer - Cursor Rules
+
+## Project Overview
+
+Interactive Streamlit application for visualizing subnational Human Development Index data, focusing on identifying bottlenecking factors across regions and over time.
+
+### Core Objective
+Provide a tool to visualize HDI bottlenecking factors at the subnational level across different parts of the world over time, using the Global Data Lab Subnational HDI dataset v8.3.
+
+## Design Philosophy
+
+### Simplicity First
+- Create the simplest possible solution that works
+- Avoid over-engineering
+- Each feature must serve a clear purpose
+- If uncertain, choose the simpler approach
+
+### Minimalism
+- Clean, uncluttered interface
+- No decorative elements
+- No emojis, ever
+- Focus on data and functionality
+- White space is valuable
+
+### Visual Design
+- Modern, clean aesthetic
+- Consistent color schemes for data representation
+- Intuitive layouts with clear hierarchy
+- Responsive design that works at different screen sizes
+- Professional appearance without complexity
+
+## Technical Stack
+
+### Required Technologies
+- **Python 3.8+**: Primary language
+- **Streamlit**: Web application framework
+- **Pandas**: Data manipulation
+- **NumPy**: Numerical computations
+- **Plotly/Plotly Express**: Interactive visualizations
+- **PyYAML**: Configuration management
+
+### Optional Tools
+- **Scikit-learn**: If clustering/analysis is needed
+- **Shell scripts**: For setup or automation tasks only when necessary
+
+## Code Standards
+
+### Python Code
+- Follow PEP 8 style guidelines
+- Use type hints where beneficial for clarity
+- Docstrings for modules, classes, and functions
+- No placeholder comments like "change this for your version"
+- All code must be functional and ready to use
+- Comments should explain why, not what
+- Variable names should be descriptive and clear
+
+### File Organization
+```
+new-data-vis-project/
+├── README.md                    # Comprehensive documentation
+├── CHANGELOG.md                 # All changes tracked here
+├── requirements.txt             # Python dependencies with versions
+├── .gitignore                   # Standard Python gitignore
+├── app.py                       # Main Streamlit entry point
+├── data/
+│   ├── raw/                     # Original datasets (never modified)
+│   ├── processed/               # Cleaned, processed data
+│   └── README.md                # Data documentation
+├── src/                         # Source modules
+│   ├── __init__.py
+│   ├── data_processing.py       # Data loading and processing
+│   ├── visualizations.py        # Visualization functions
+│   ├── utils.py                 # Helper functions
+│   └── analysis.py              # Analysis logic (bottleneck detection, etc.)
+├── config/                      # Configuration files
+│   ├── app_config.yaml          # App settings
+│   └── viz_config.yaml          # Visualization settings
+├── assets/                      # Static assets
+│   └── styles/                  # Custom CSS if needed
+└── tests/                       # Unit tests (optional but encouraged)
+    └── __init__.py
+```
+
+## Data Handling
+
+### Dataset Information
+- **Source**: Global Data Lab Subnational HDI v8.3
+- **Scope**: Subnational regions across multiple countries
+- **Temporal**: Multiple years of data
+- **Components**: Health, Education, Income indices
+- **Gender**: Disaggregated by gender (male/female)
+
+### Key Variables
+- `shdi`: Subnational HDI
+- `healthindex`, `edindex`, `incindex`: Component indices
+- `lifexp`, `esch`, `msch`, `lgnic`: Raw indicators
+- Gender-specific versions (suffix f/m)
+- `level`: National or subnational
+- `region`: Subnational region name
+
+### Data Processing Rules
+- Never modify raw data files
+- All processing outputs go to `data/processed/`
+- Handle missing values explicitly
+- Document any data transformations
+- Cache processed data for performance
+
+## HDI Methodology
+
+### Component Calculation
+1. **Health Index**: Based on life expectancy
+   - Normalized to [0, 1] range
+   
+2. **Education Index**: Combined metric
+   - Expected years of schooling
+   - Mean years of schooling
+   
+3. **Income Index**: Based on GNI per capita
+   - Logarithmic transformation
+   - Normalized to [0, 1] range
+
+### Bottleneck Identification
+The bottleneck is the component with the lowest index value for each region.
+- Identifies which dimension limits overall development
+- Critical for policy insights
+- Should be visualized clearly
+
+## Documentation Requirements
+
+### README.md Must Include
+1. **Project Overview**: Clear description of purpose
+2. **Dataset Information**: Source, scope, key variables
+3. **Project Structure**: Directory layout with explanations
+4. **Installation Instructions**: Step-by-step setup
+5. **Usage Guide**: How to run and use the application
+6. **Features**: What the tool can do
+7. **HDI Methodology**: Brief explanation of calculations
+8. **Bottleneck Analysis**: How it works and why it matters
+9. **Future Enhancements**: Potential additions
+10. **License and Attribution**: Appropriate credits
+
+### CHANGELOG.md Format
+```markdown
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [Version] - YYYY-MM-DD
+
+### Added
+- New features
+
+### Changed
+- Modifications to existing features
+
+### Fixed
+- Bug fixes
+
+### Removed
+- Deprecated features
+```
+
+## Visualization Guidelines
+
+### Choropleth Maps
+- Show HDI or component values across regions
+- Intuitive color scales (red-yellow-green for HDI)
+- Interactive tooltips with key information
+- Zoom and pan capabilities
+- Click to select regions
+
+### Time Series
+- Clear temporal trends
+- Multiple regions comparable
+- Year range selection
+- Smooth, readable lines
+
+### Component Breakdown
+- Clear comparison of three indices
+- Bottleneck clearly highlighted
+- Bar charts or radar charts
+- Consistent color coding
+
+### Color Schemes
+- HDI Overall: Red-Yellow-Green gradient
+- Health: Red/Orange tones
+- Education: Blue tones
+- Income: Green tones
+- Gender comparisons: Use distinguishable but professional colors
+
+## Streamlit Best Practices
+
+### Performance
+- Use `@st.cache_data` for data loading
+- Use `@st.cache_resource` for expensive computations
+- Load data once, filter dynamically
+- Avoid unnecessary reruns
+
+### Layout
+- Use `st.set_page_config(layout="wide")` for full width
+- Sidebar for controls and filters
+- Main area for visualizations
+- Clear sections with headers
+- Responsive to different screen sizes
+
+### Interactivity
+- Sliders for year ranges
+- Selectboxes for categorical filters
+- Radio buttons for view selection
+- Checkboxes for toggles
+- All interactions should feel immediate
+
+## Development Workflow
+
+### Initial Setup
+1. Create project structure
+2. Set up virtual environment
+3. Install dependencies
+4. Create configuration files
+5. Document everything in README
+
+### Feature Development
+1. Start with simplest working version
+2. Test with actual data
+3. Refine based on results
+4. Document in CHANGELOG
+5. Update README if needed
+
+### Quality Checks
+- Code should run without errors
+- All features should work as intended
+- Documentation should be accurate and complete
+- No debug prints or commented-out code in final version
+- Linting passes without warnings
+
+## Error Handling
+
+### Data Issues
+- Handle missing values gracefully
+- Validate data formats
+- Provide clear error messages
+- Log issues for debugging
+
+### User Input
+- Validate all user selections
+- Provide sensible defaults
+- Prevent invalid combinations
+- Clear feedback for issues
+
+## Deployment Considerations
+
+### Requirements
+- Pin all dependency versions
+- Document Python version requirement
+- Include setup instructions
+- Provide troubleshooting tips
+
+### Configuration
+- Use YAML files for settings
+- Environment-specific configs if needed
+- Never hardcode paths
+- Make customization easy
+
+## What NOT to Do
+
+### Anti-Patterns
+- No placeholder comments
+- No "TODO: implement this" in production code
+- No decorative elements that don't serve function
+- No overly complex abstractions
+- No premature optimization
+- No features "just in case"
+
+### Code Smells to Avoid
+- Duplicate code across modules
+- Functions longer than 50 lines
+- More than 3 levels of nesting
+- Unclear variable names
+- Magic numbers without explanation
+
+## Communication
+
+### Code Comments
+- Explain complex logic
+- Document assumptions
+- Note data sources
+- Clarify non-obvious decisions
+- Never state the obvious
+
+### Commit Messages
+- Clear, descriptive messages
+- Present tense ("Add feature" not "Added feature")
+- Reference issues if applicable
+- Group related changes
+
+## Testing
+
+### When to Test
+- Critical calculations (HDI components, bottlenecks)
+- Data processing functions
+- Utility functions
+- Edge cases
+
+### Test Structure
+- Use pytest framework
+- One test file per module
+- Clear test function names
+- Test both success and failure cases
+
+## Future-Proofing
+
+### Extensibility
+- Modular code design
+- Clear interfaces between modules
+- Configuration-driven where possible
+- Easy to add new visualizations
+- Simple to incorporate new data
+
+### Maintainability
+- Self-documenting code
+- Up-to-date documentation
+- Clear project structure
+- Version controlled
+- Reproducible environment
+
+## Human Touch
+
+All generated code should appear human-written:
+- Natural variable names
+- Realistic comments
+- Practical error handling
+- Logical flow
+- No AI-style verbosity or over-documentation
+- Professional but not robotic
+
+## Project Success Criteria
+
+A successful implementation will:
+1. Load and process subnational HDI data correctly
+2. Identify bottlenecking components accurately
+3. Visualize data clearly and intuitively
+4. Run without errors
+5. Be easy to use and understand
+6. Be well-documented
+7. Look professional and modern
+8. Be maintainable and extensible
+9. Follow all guidelines in this file
+
+## Final Notes
+
+Remember: The goal is to create a functional, beautiful tool that helps users understand subnational HDI patterns and bottlenecks. Every line of code, every visualization, every piece of documentation should serve this goal. When in doubt, choose simplicity and clarity over complexity and cleverness.
+
