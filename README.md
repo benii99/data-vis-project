@@ -4,14 +4,14 @@ Interactive visualization tool for exploring Human Development Index at the subn
 
 ## Project Overview
 
-This application provides an interactive platform to explore the Global Data Lab Subnational HDI dataset, enabling users to visualize development patterns and identify which components (Health, Education, or Income) are limiting factors for different subnational regions worldwide.
+This Streamlit application visualizes the Global Data Lab Subnational Human Development Index dataset, focusing on identifying which of the three HDI components (Health, Education, or Income) acts as the bottleneck in each country and region for any given year.
 
 ### Core Objectives
 
-- Visualize subnational HDI data on an interactive world map
-- Identify bottlenecking components for each region
-- Track evolution of HDI components over time
-- Compare effect of subnational regions with whole-country HDI values
+- Visualize subnational HDI bottlenecks on an interactive world map
+- Display variance in HDI components to identify development constraints
+- Enable hierarchical exploration from global to country to regional level
+- Show temporal evolution of bottlenecks through synchronized time series visualization
 
 ## Dataset
 
@@ -191,132 +191,176 @@ Save processed files for efficient loading:
 
 ### Interface Layout
 
-**Left Sidebar**: Visualization mode selector
-**Center**: Interactive world map with time slider on top
-**Right Panel**: Insight dashboard with component evolution
+The application is divided into three main areas:
 
-### Visualization Modes
+**Left Sidebar**
+- Simple control panel for visualization options
+- Bottleneck visualization toggle (expandable in future versions)
 
-#### 1. HDI Visualization Mode
-Displays human development levels across subnational regions.
+**Main Dashboard - Left (Map Area)**
+- Year slider at the top for temporal navigation (1990-2022)
+- Primary world map showing subnational-level data
+- Three smaller component maps below (Health, Education, Income) with synchronized interaction
 
-**Map Display Options:**
-- **Overall HDI**: Shows the composite HDI value (0-1 scale)
-  - Color scale: Red (low) → Yellow (medium) → Green (high)
-  
-- **Health Component**: Life expectancy index only
-  - Color scale: Light to dark red
-  
-- **Education Component**: Education index only
-  - Color scale: Light to dark blue
-  
-- **Income Component**: GNI per capita index only
-  - Color scale: Light to dark yellow
+**Main Dashboard - Right (Graph Area)**
+- Component evolution chart showing temporal trends
+- Dynamic background highlighting the bottleneck component in different time periods
 
-Color intensity represents the component value, with darker shades indicating higher values.
+### Primary Visualization: Bottleneck Map
 
-#### 2. Bottleneck Visualization Mode
-Identifies which component is limiting development in each region.
+The main map displays a geospatial visualization at the subnational level, showing variance or average/max distance of HDI components to identify potential bottlenecks.
 
-**Map Display:**
-- **Red regions**: Health is the bottleneck (lowest component)
-- **Blue regions**: Education is the bottleneck (lowest component)
-- **Yellow regions**: Income is the bottleneck (lowest component)
+**Map Metrics:**
+- Variance/spread of component values within regions
+- Distance from ideal balanced development
+- Visual identification of bottleneck patterns
 
-Color intensity represents the bottleneck component's value - darker shades indicate a higher bottleneck value (less severe limitation), lighter shades indicate a lower value (more severe limitation).
+**Color Coding:**
+- Red: Health is the bottleneck
+- Blue: Education is the bottleneck  
+- Yellow/Green: Income is the bottleneck
+- Intensity indicates severity
 
-This visualization immediately reveals geographic patterns in development constraints, enabling targeted policy focus.
+### Component Detail Maps
 
-### Interactive Elements
+Three synchronized smaller maps positioned below the main map:
 
-**Time Slider** (positioned above map)
-- Range: 1990-2022
-- Allows temporal exploration of HDI evolution
-- Updates map and dashboard in real-time
+1. **Health Component Map**: Displays health index values
+2. **Education Component Map**: Displays education index values
+3. **Income Component Map**: Displays income index values
 
-**Map Interaction**
-- Click any subnational region to select it
-- Hover for quick information tooltip
-- Zoom and pan controls for detailed exploration
+**Synchronization:**
+- Hover on one map highlights the same region on all three
+- Click on one map selects across all maps
+- Year slider affects all maps simultaneously
 
-**Insight Dashboard** (right panel)
-- **Component Evolution Chart**: Line graph showing the three components over time
-  - Three lines: Health (red), Education (blue), Income (yellow)
-  - Background shading indicates which component is the bottleneck during each time period
-  - Clear visualization of how bottlenecks shift over time
-  - Shows whether regions are improving their limiting factors
+### Interactive Drill-Down
+
+**Country Level (Initial View)**
+- World map showing all countries at subnational resolution
+- Click any country → zooms to show variance within subnational regions
+- Displays internal variation and bottleneck patterns
+
+**Subnational Level (Drill-Down)**
+- Click on a specific province/region
+- Displays detailed HDI component data for that region
+- Shows time series evolution in the right panel
+
+**Navigation:**
+- Year slider controls temporal dimension across all views
+- Click interactions enable spatial drill-down
+- Breadcrumb or back button to return to higher level
+
+### Component Evolution Chart
+
+**Right Panel Display:**
+- Three colored lines representing Health (red), Education (blue), Income (yellow)
+- X-axis: Years (1990-2022)
+- Y-axis: Index values (0-1)
+- Background color changes to highlight which component is the bottleneck in each time period
+- Smooth transitions between bottleneck periods
+
+**Features:**
+- Interactive tooltips showing exact values
+- Legend with component names
+- Clear visual identification of bottleneck shifts over time
+- Updates dynamically when regions are selected
 
 ### Key Features
 
-**Geographic Visualization**
-- Subnational regions displayed with proper boundaries
-- Two distinct visualization modes for different analytical needs
-- Smooth color gradients for intuitive understanding
-- Interactive tooltips with region name and values
+**Hierarchical Exploration**
+- Start with global subnational view
+- Drill down to country-level variance
+- Drill further to individual region details
+- Seamless navigation between levels
 
-**Temporal Analysis**
-- Explore 33 years of development data
-- Track component evolution over time
-- Identify when bottlenecks change
-- Observe improvement patterns
+**Multi-Scale Analysis**
+- Variance visualization at country level
+- Detailed component values at region level
+- Temporal evolution across all scales
 
-**Bottleneck Identification**
-- Instantly see which component limits each region
-- Understand geographic patterns of constraints
-- Focus policy attention on limiting factors
-- Track whether bottlenecks persist or shift
+**Synchronized Interactions**
+- All map views respond to the same year slider
+- Component maps highlight simultaneously
+- Selection propagates across all visualizations
+
+**Bottleneck Focus**
+- Primary visualization emphasizes development constraints
+- Component maps provide diagnostic detail
+- Time series shows whether bottlenecks persist or shift
 
 ## Visualization Components
 
-### 1. HDI Choropleth Map (`create_hdi_map()`)
-**Purpose**: Display human development levels across subnational regions
+### 1. Main Bottleneck Map (`create_bottleneck_map()`)
+**Purpose**: Primary visualization showing which component limits development across subnational regions
 
-**Technology**: Plotly Choropleth
+**Technology**: Plotly Choropleth with GeoJSON for subnational boundaries
 
-**Variants**:
-- Overall HDI: Red-Yellow-Green gradient
-- Health component: Red gradient (light to dark)
-- Education component: Blue gradient (light to dark)
-- Income component: Yellow gradient (light to dark)
-
-**Features**: 
-- Subnational boundaries
-- Interactive hover tooltips
-- Click to select region
-- Zoom and pan
-
-### 2. Bottleneck Choropleth Map (`create_bottleneck_map()`)
-**Purpose**: Identify which component limits development in each region
-
-**Technology**: Plotly Choropleth
+**Display Metrics**:
+- Variance/spread of HDI components within regions
+- Average distance from balanced development
+- Bottleneck identification (lowest component)
 
 **Color Coding**:
 - Red: Health is bottleneck
 - Blue: Education is bottleneck
-- Yellow: Income is bottleneck
-- Intensity: Value of bottleneck component (darker = higher value)
+- Yellow/Green: Income is bottleneck
+- Color intensity: Severity of bottleneck
 
-**Features**:
-- Clear categorical distinction
-- Reveals geographic patterns of constraints
-- Interactive selection
+**Interactivity**:
+- Click country → drill down to subnational variance view
+- Click region → display detailed component data
+- Hover → tooltip with region name and key metrics
+- Synchronized with year slider and component maps
+
+### 2. Component Detail Maps (Set of 3)
+**Purpose**: Synchronized smaller maps showing individual component values
+
+#### Health Component Map (`create_health_map()`)
+- Displays health index at subnational level
+- Red color gradient (light to dark)
+- Synchronized selection and highlighting
+
+#### Education Component Map (`create_education_map()`)
+- Displays education index at subnational level
+- Blue color gradient (light to dark)
+- Synchronized selection and highlighting
+
+#### Income Component Map (`create_income_map()`)
+- Displays income index at subnational level
+- Yellow/Green color gradient (light to dark)
+- Synchronized selection and highlighting
+
+**Synchronization Features**:
+- Hover on one map → highlights region on all three
+- Click on one map → selects across all maps
+- All respond to the same year slider
+- Consistent geographic extent and zoom level
 
 ### 3. Component Evolution Chart (`create_evolution_chart()`)
-**Purpose**: Show how the three HDI components change over time for selected region
+**Purpose**: Time series visualization showing how the three HDI components evolve for selected region
 
-**Technology**: Plotly Line Chart
+**Technology**: Plotly Line Chart with custom background shading
 
 **Elements**:
 - Three lines: Health (red), Education (blue), Income (yellow)
-- Background shading: Indicates which component is bottleneck during each period
+- Dynamic background color indicating which component is bottleneck in each time period
 - X-axis: Years (1990-2022)
-- Y-axis: Index value (0-1)
+- Y-axis: Index value (0-1 scale)
 
 **Features**:
-- Multi-line comparison
-- Bottleneck periods highlighted
-- Interactive legend
-- Zoom capability
+- Multi-line comparison of all three components
+- Background shading transitions when bottleneck changes
+- Interactive tooltips with exact values
+- Legend with component names
+- Updates dynamically when region is selected
+- Zoom and pan capabilities
+
+**Background Shading Logic**:
+- Light red background when health is bottleneck
+- Light blue background when education is bottleneck
+- Light yellow background when income is bottleneck
+- Smooth transitions between periods
 
 ## Technical Implementation
 
@@ -432,28 +476,30 @@ The application will open in your default browser at `http://localhost:8501`
 
 ### Basic Workflow
 
-1. **Explore the map**: View subnational HDI distribution globally
-2. **Select a region**: Click on a region to view details
-3. **Analyze bottlenecks**: See which component limits development
-4. **Track over time**: Use the year slider to see evolution
-5. **Compare regions**: Filter and compare similar areas
+1. **Select Year**: Use the slider at the top of the map area to select a year (1990-2022)
+2. **View Global Bottlenecks**: The main map shows which component (Health, Education, or Income) is the bottleneck for each subnational region
+3. **Examine Components**: Review the three smaller maps below to see individual component values
+4. **Drill Down to Country**: Click on any country to see variance within its subnational regions
+5. **Select Region**: Click on a specific province/region to see detailed HDI component data
+6. **Analyze Time Series**: The right panel shows how the three components evolve over time for the selected region, with background highlighting the bottleneck periods
 
-### Advanced Features
+### Navigation
 
-**Time Range Analysis**
-- Select year range with slider
-- View average HDI over period
-- Track component changes
+**Hierarchical Exploration**
+- Start at global subnational view
+- Click country → view internal variance
+- Click region → view detailed time series
+- Use back/breadcrumb to return to higher level
 
-**Bottleneck Filtering**
-- Filter regions by bottleneck type
-- Identify patterns (e.g., education bottlenecks in specific areas)
-- Compare intervention effectiveness
+**Temporal Navigation**
+- Year slider controls all map views simultaneously
+- Time series chart shows full historical range
+- Observe how bottlenecks shift over time
 
-**Gender Analysis** (if implemented)
-- Toggle gender-disaggregated view
-- Compare male vs female indices
-- Analyze gender development gaps
+**Map Synchronization**
+- Hover over any component map → highlights the same region on all three
+- Click on any component map → selects across all visualizations
+- All maps respond to the same year slider
 
 ## Development Guidelines
 
@@ -475,15 +521,16 @@ Refer to `.cursorrules` for comprehensive development standards.
 
 ## Future Enhancements
 
-Potential additions based on user needs:
+Potential additions for future versions:
 
-1. **Comparative analysis**: Side-by-side region comparison
-2. **Statistical clustering**: Group regions by development patterns
-3. **Projection models**: Predict future HDI based on trends
-4. **Gender focus**: Dedicated gender development analysis
-5. **Export capabilities**: Download filtered data and visualizations
-6. **Custom regions**: Define custom region groups for analysis
-7. **Policy insights**: Automated suggestions based on bottlenecks
+1. **Additional Visualization Modes**: Expand sidebar controls with more visualization options beyond bottleneck view
+2. **Gender Disaggregation**: Toggle to view male vs female HDI components separately
+3. **Comparative Analysis**: Side-by-side comparison of multiple regions
+4. **Statistical Clustering**: Identify regions with similar development patterns
+5. **Export Capabilities**: Download selected data and visualizations
+6. **Temporal Animations**: Automatic playback showing evolution over years
+7. **Custom Metrics**: Alternative bottleneck definitions (e.g., gap from maximum component)
+8. **Policy Insights**: Contextual suggestions based on identified bottlenecks
 
 ## Data Sources and Attribution
 
@@ -521,7 +568,7 @@ For questions, suggestions, or contributions, please refer to the project reposi
 
 ---
 
-**Last Updated**: November 5, 2025
-**Version**: 1.0.0
-**Status**: In Development
+**Last Updated**: November 9, 2025
+**Version**: 0.1.0
+**Status**: Initial Development
 

@@ -1,7 +1,6 @@
 streamlit
+plotly
+geopandas
 pandas
 numpy
-plotly
-pyyaml
-scikit-learn
 
