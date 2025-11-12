@@ -462,6 +462,7 @@ ls data/raw/
 6. Process data (first run)
 ```bash
 python -c "from src.data_processing import process_all_data; process_all_data()"
+python src\associate_shdi_geojson.py
 ```
 
 ### Running the Application
