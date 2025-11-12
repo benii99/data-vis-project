@@ -11,13 +11,14 @@ st.set_page_config(page_title="Subnational HDI Explorer", layout="wide")
 geojson_original_path = Path(__file__).parent / "data" / "geojson" / "geoBoundariesCGAZ_ADM1.geojson"
 geojson_simplified_path = Path(__file__).parent / "data" / "geojson" / "geoBoundariesCGAZ_ADM1_simplified_5km.geojson"
 geojson_shdi_association_path = Path(__file__).parent / "data" / "processed" / "geojson_shdi.geojson"
+geojson = Path(__file__).parent / "data" / "geojson"  / "gdl_regons_simplified_5km.geojson"
 shdi_processed_path = Path(__file__).parent / "data" / "processed" / "subnational_hdi_processed.csv"
 
 # Use simplified GeoJSON if available, otherwise use original
 #geojson_path = geojson_simplified_path if geojson_simplified_path.exists() else geojson_original_path
 
 # Use associated geojson data
-geojson_path = geojson_shdi_association_path
+geojson_path = geojson
 
 # Load and cache GeoJSON
 @st.cache_data
@@ -38,16 +39,14 @@ gdf = load_geojson() if geojson_path.exists() else None
 shdi = pd.read_csv(shdi_processed_path)
 
 # Define function for choosing shdi data from shdi indexes
-def get_shdi_data(_shdi, indexes):
-    if indexes == "":
+def get_shdi_data(_shdi, gdlcode):
+    region_data = _shdi[shdi["gdlcode"] == gdlcode]
+
+    if region_data.__len__() == 0:
         return -1
 
-    indexes = [int(x) for x in indexes.split(",")]
-    if len(indexes) != 0:
-        region_data = shdi.loc[indexes]
-
-        if 2022 in region_data["year"].values:
-            return region_data[region_data["year"] == 2022]["shdi"].iloc[0] # color according to shdi in 2022
+    if 2022 in region_data["year"].values:
+        return region_data[region_data["year"] == 2022]["shdi"].iloc[0] # color according to shdi in 2022
     
     return -1
 
@@ -61,12 +60,13 @@ if gdf is not None:
     fig = go.Figure(go.Choroplethmapbox(
         geojson=geojson_data,
         locations=gdf.index,
-        z=[get_shdi_data(shdi, indexes) for indexes in gdf["regionData"]], 
+        z = [get_shdi_data(shdi, gdf.loc[index, "gdlcode"]) for index in gdf.index], 
+        #z=[get_shdi_data(shdi, indexes) for indexes in gdf["regionData"]], 
         #z=[1] * len(gdf),  # Uniform color for now
         #colorscale=[[np.min(shdi["shdi"]), "#afcdf1"], [np.max(shdi["shdi"]), "#0077ff"]],
         showscale=True,
         marker=dict(line=dict(color='white', width=0.5)),
-        text=gdf["shapeName"]
+        text=gdf["gdlcode"]
     ))
     
     # Update layout

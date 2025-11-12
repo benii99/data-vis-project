@@ -4,6 +4,7 @@ Reduces file size and improves map performance.
 """
 
 import geopandas as gpd
+import pyogrio
 from pathlib import Path
 import json
 
@@ -39,8 +40,7 @@ def simplify_geojson(input_path, output_path, tolerance_km=5):
     essential_cols = ['geometry']
     
     # Keep identifier columns if they exist
-    for col in ['shapeISO', 'ISO', 'iso', 'shapeName', 'NAME', 'name', 
-                'shapeID', 'shapeGroup', 'shapeType']:
+    for col in ['gdlcode', 'continent', 'iso_code']:
         if col in gdf.columns:
             essential_cols.append(col)
     
@@ -86,14 +86,18 @@ def simplify_multiple_tolerances(input_path, output_dir):
 if __name__ == "__main__":
     # Define paths
     project_root = Path(__file__).parent.parent
-    input_geojson = project_root / "data" / "geojson" / "geoBoundariesCGAZ_ADM1.geojson"
-    output_geojson = project_root / "data" / "geojson" / "geoBoundariesCGAZ_ADM1_simplified_5km.geojson"
+    #input_geojson = project_root / "data" / "geojson" / "geoBoundariesCGAZ_ADM1.geojson"
+    #output_geojson = project_root / "data" / "geojson" / "geoBoundariesCGAZ_ADM1_simplified_5km.geojson"
+
+    input_geojson = project_root / "data" / "geojson" / "gdl_regions.geojson"
+    output_geojson = project_root / "data" / "geojson" / "gdl_regons_simplified_5km.geojson"
     
     if not input_geojson.exists():
         print(f"Error: Input file not found: {input_geojson}")
         exit(1)
     
     # Create simplified version with 5km tolerance
+    pyogrio.set_gdal_config_options({"OGR_GEOJSON_MAX_OBJ_SIZE": 0})
     simplify_geojson(input_geojson, output_geojson, tolerance_km=5)
     
     # Optionally create multiple versions

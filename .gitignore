@@ -41,6 +41,8 @@ env/
 # Data (keep structure, ignore large files)
 *.csv
 data/geojson/geoBoundariesCGAZ_ADM1.geojson
+data/geojson/gdl_regions.geojson
+data/gdl/
 !data/processed/.gitkeep
 !data/raw/.gitkeep
 
