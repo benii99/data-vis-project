@@ -88,6 +88,140 @@ def get_year_data(gdlcodes_tuple, year, _data_hash):
     # Map gdlcodes to HDI values
     return [shdi_series.get(gdlcode, -1) for gdlcode in gdlcodes_tuple]
 
+@st.cache_data
+def get_region_timeseries(gdlcode, _data_hash):
+    """Get time series data for a specific region."""
+    _shdi_df = load_shdi_data()
+    
+    # Filter data for the region
+    region_data = _shdi_df[_shdi_df['gdlcode'] == gdlcode].copy()
+    
+    # Sort by year
+    region_data = region_data.sort_values('year')
+    
+    return region_data
+
+def create_component_evolution_chart(region_data):
+    """Create a line chart showing HDI component evolution with bottleneck background shading."""
+    if region_data.empty:
+        return None
+    
+    # Extract data
+    years = region_data['year'].values
+    health = region_data['healthindex'].values
+    education = region_data['edindex'].values
+    income = region_data['incindex'].values
+    hdi = region_data['shdi'].values
+    
+    # Determine bottleneck for each year (component with lowest value)
+    bottlenecks = []
+    for _, row in region_data.iterrows():
+        components = {
+            'health': row.get('healthindex', np.nan),
+            'education': row.get('edindex', np.nan),
+            'income': row.get('incindex', np.nan)
+        }
+        # Remove NaN values
+        valid_components = {k: v for k, v in components.items() if pd.notna(v)}
+        if valid_components:
+            bottleneck = min(valid_components, key=valid_components.get)
+        else:
+            bottleneck = None
+        bottlenecks.append(bottleneck)
+    
+    # Create figure
+    fig = go.Figure()
+    
+    # Add background shading for each time period based on bottleneck
+    # Color mapping: health=red, education=blue, income=green
+    color_map = {
+        'health': 'rgba(220, 20, 60, 0.15)',      # Light red
+        'education': 'rgba(30, 144, 255, 0.15)',  # Light blue
+        'income': 'rgba(34, 139, 34, 0.15)'      # Light green
+    }
+    
+    # Create shaded rectangles for each year period
+    # Use midpoints between years for smoother transitions
+    for i in range(len(years)):
+        if bottlenecks[i] and bottlenecks[i] in color_map:
+            # Determine x boundaries for this year
+            if i == 0:
+                x0 = years[i] - 0.5
+                x1 = (years[i] + years[i+1]) / 2 if len(years) > 1 else years[i] + 0.5
+            elif i == len(years) - 1:
+                x0 = (years[i-1] + years[i]) / 2
+                x1 = years[i] + 0.5
+            else:
+                x0 = (years[i-1] + years[i]) / 2
+                x1 = (years[i] + years[i+1]) / 2
+            
+            fig.add_shape(
+                type="rect",
+                x0=x0,
+                y0=0,
+                x1=x1,
+                y1=1,
+                fillcolor=color_map[bottlenecks[i]],
+                layer="below",
+                line_width=0,
+            )
+    
+    # Add lines for each component
+    fig.add_trace(go.Scatter(
+        x=years,
+        y=health,
+        mode='lines+markers',
+        name='Health',
+        line=dict(color='rgb(220, 20, 60)', width=2),
+        marker=dict(size=4)
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=years,
+        y=education,
+        mode='lines+markers',
+        name='Education',
+        line=dict(color='rgb(30, 144, 255)', width=2),
+        marker=dict(size=4)
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=years,
+        y=income,
+        mode='lines+markers',
+        name='Income',
+        line=dict(color='rgb(34, 139, 34)', width=2),
+        marker=dict(size=4)
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=years,
+        y=hdi,
+        mode='lines+markers',
+        name='HDI',
+        line=dict(color='rgb(128, 128, 128)', width=2, dash='dash'),
+        marker=dict(size=4)
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        xaxis_title='Year',
+        yaxis_title='Index Value',
+        yaxis=dict(range=[0, 1]),
+        hovermode='x unified',
+        height=400,
+        margin=dict(l=40, r=20, t=20, b=40),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
+    )
+    
+    return fig
+
 
 # Display header
 st.header("Subnational HDI Explorer")
@@ -270,6 +404,23 @@ if gdf is not None:
                         if region_name:
                             st.write(f"**Region:** {region_name}")
                         st.write(f"**GDL Code:** {gdlcode}")
+                        
+                        # Get time series data and create component evolution chart
+                        if gdlcode != 'Unknown':
+                            data_hash = len(shdi)
+                            region_data = get_region_timeseries(gdlcode, data_hash)
+                            
+                            if not region_data.empty:
+                                st.subheader("HDI Component Evolution")
+                                evolution_fig = create_component_evolution_chart(region_data)
+                                if evolution_fig:
+                                    st.plotly_chart(
+                                        evolution_fig,
+                                        use_container_width=True,
+                                        config={'displayModeBar': False}
+                                    )
+                            else:
+                                st.info("No time series data available for this region.")
                 except Exception as e:
                     st.info("No region selected. Click on a region in the map to view details.")
             else:
