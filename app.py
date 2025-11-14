@@ -9,8 +9,9 @@ st.set_page_config(page_title="Subnational HDI Explorer", layout="wide")
 
 # File paths
 geojson_original_path = Path(__file__).parent / "data" / "geojson" / "geoBoundariesCGAZ_ADM1.geojson"
-geojson_simplified_path = Path(__file__).parent / "data" / "geojson" / "geoBoundariesCGAZ_ADM1_simplified_5km.geojson"
-geojson_shdi_association_path = Path(__file__).parent / "data" / "processed" / "geojson_shdi.geojson"
+#geojson_simplified_path = Path(__file__).parent / "data" / "geojson" / "geoBoundariesCGAZ_ADM1_simplified_5km.geojson"
+#geojson_shdi_association_path = Path(__file__).parent / "data" / "processed" / "geojson_shdi.geojson"
+
 geojson = Path(__file__).parent / "data" / "geojson"  / "gdl_regons_simplified_5km.geojson"
 shdi_processed_path = Path(__file__).parent / "data" / "processed" / "subnational_hdi_processed.csv"
 
@@ -48,15 +49,25 @@ available_years = sorted(shdi["year"].unique())
 min_year = int(available_years[0])
 max_year = int(available_years[-1])
 
-# Add year slider in sidebar
-st.sidebar.header("Filters")
-selected_year = st.sidebar.slider(
-    "Select Year",
-    min_value=min_year,
-    max_value=max_year,
-    value=max_year,
-    step=1
+# Sidebar mode selection
+st.sidebar.header("View Mode")
+view_mode = st.sidebar.radio(
+    "Select Mode",
+    ["HDI Overview", "Bottleneck Overview"],
+    index=0
 )
+
+# HDI Overview options
+if view_mode == "HDI Overview":
+    st.sidebar.subheader("HDI Overview Options")
+    scale_mode = st.sidebar.radio(
+        "Color Scale",
+        ["Absolute", "Range"],
+        index=0,
+        help="Absolute: 0 to 1 scale. Range: min to max of actual data values."
+    )
+elif view_mode == "Bottleneck Overview":
+    st.sidebar.info("Bottleneck overview will be available in a future update.")
 
 @st.cache_data
 def get_geojson_data(_gdf):
@@ -78,53 +89,203 @@ def get_year_data(gdlcodes_tuple, year, _data_hash):
     return [shdi_series.get(gdlcode, -1) for gdlcode in gdlcodes_tuple]
 
 
-# Display selected year
-st.header(f"Subnational HDI Explorer - {selected_year}")
+# Display header
+st.header("Subnational HDI Explorer")
+
+# Initialize selected_year (will be updated by slider below map)
+if "selected_year" not in st.session_state:
+    st.session_state.selected_year = max_year
+
+# Initialize selected region
+if "selected_region_index" not in st.session_state:
+    st.session_state.selected_region_index = None
 
 # Create map
 if gdf is not None:
-    geojson_data = get_geojson_data(gdf)
-    
-    # Get gdlcodes once
-    gdlcodes = gdf["gdlcode"].values
-    
-    # Get HDI values for selected year (cached per year)
-    # Use dataframe length as hash to track data changes
-    data_hash = len(shdi)
-    hdi_values = get_year_data(tuple(gdlcodes), selected_year, data_hash)
-    
-    # Create choropleth map
-    fig = go.Figure(go.Choroplethmapbox(
-        geojson=geojson_data,
-        locations=gdf.index,
-        z=hdi_values,
-        showscale=True,
-        marker=dict(line=dict(color='white', width=0.5)),
-        text=gdf["gdlcode"]
-    ))
-    
-    # Update layout
-    fig.update_layout(
-        mapbox=dict(
-            style='carto-positron',
-            center=dict(lat=20, lon=0),
-            zoom=1.5
-        ),
-        margin=dict(l=0, r=0, t=0, b=0),
-        height=700,
-        dragmode='pan'
-    )
-    
-    # Display with plotly (config enables scroll zoom and other interactions)
-    st.plotly_chart(
-        fig, 
-        use_container_width=True,
-        config={
-            'scrollZoom': True,
-            'displayModeBar': True,
-            'displaylogo': False
-        }
-    )
+    if view_mode == "HDI Overview":
+        geojson_data = get_geojson_data(gdf)
+        
+        # Get gdlcodes once
+        gdlcodes = gdf["gdlcode"].values
+        
+        # Get HDI values for selected year (cached per year)
+        # Use dataframe length as hash to track data changes
+        data_hash = len(shdi)
+        hdi_values = get_year_data(tuple(gdlcodes), st.session_state.selected_year, data_hash)
+        
+        # Determine color scale range
+        if scale_mode == "Range":
+            # Filter out -1 values and get min/max
+            valid_values = [v for v in hdi_values if v != -1]
+            if valid_values:
+                zmin = min(valid_values)
+                zmax = max(valid_values)
+            else:
+                zmin = 0
+                zmax = 1
+        else:  # Absolute
+            zmin = 0
+            zmax = 1
+        
+        # Replace -1 with a value below zmin for white coloring
+        # Calculate missing_value so it normalizes to ~0.0 (white) and zmin normalizes to ~0.02 (red start)
+        if zmax > zmin:
+            # To get zmin -> 0.02 after normalization: k/(1+k) = 0.02, so k ≈ 0.0204
+            k = 0.0204
+            missing_value = zmin - k * (zmax - zmin)
+        else:
+            missing_value = -0.1
+        
+        hdi_values_display = [missing_value if v == -1 else v for v in hdi_values]
+        
+        # Adjust zmin to include missing value for proper normalization
+        display_zmin = missing_value
+        display_zmax = zmax
+        
+        # Define red-to-green colorscale with white for missing data
+        # Normalization: missing_value -> 0.0 (white), zmin -> ~0.02 (red), zmax -> 1.0 (green)
+        colorscale = [
+            [0.0, 'rgb(255, 255, 255)'],    # White (missing data)
+            [0.01, 'rgb(255, 255, 255)'],   # White (smooth transition)
+            [0.02, 'rgb(220, 20, 60)'],     # Red (low HDI starts)
+            [0.5, 'rgb(255, 200, 0)'],      # Yellow (medium HDI)
+            [1.0, 'rgb(34, 139, 34)']       # Green (high HDI)
+        ]
+        
+        # Create choropleth map with customdata for region identification
+        # Convert index to list for customdata
+        region_indices = gdf.index.tolist()
+        
+        fig = go.Figure(go.Choroplethmapbox(
+            geojson=geojson_data,
+            locations=gdf.index,
+            z=hdi_values_display,
+            zmin=display_zmin,
+            zmax=display_zmax,
+            colorscale=colorscale,
+            showscale=True,
+            marker=dict(line=dict(color='white', width=0.5)),
+            text=gdf["gdlcode"],
+            customdata=[[idx] for idx in region_indices]  # Store index as list for click events
+        ))
+        
+        # Set opacity: selected regions have lower opacity, unselected stay at full opacity
+        fig.update_traces(
+            selected=dict(marker=dict(opacity=1.0)),  # Selected: lower opacity
+            unselected=dict(marker=dict(opacity=0.7))  # Unselected: full opacity
+        )
+        
+        # Update layout
+        fig.update_layout(
+            mapbox=dict(
+                style='carto-positron',
+                center=dict(lat=20, lon=0),
+                zoom=1.5
+            ),
+            margin=dict(l=0, r=0, t=0, b=0),
+            height=700,
+            dragmode='pan',
+            clickmode='event+select'  # Enable click events
+        )
+        
+        # Create two-column layout
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # Display with plotly (config enables scroll zoom and other interactions)
+            event = st.plotly_chart(
+                fig, 
+                use_container_width=True,
+                config={
+                    'scrollZoom': True,
+                    'displayModeBar': True,
+                    'displaylogo': False
+                },
+                on_select="rerun",
+                key="map_chart"
+            )
+            
+            # Handle click/selection event
+            if event and 'selection' in event:
+                selection = event['selection']
+                if 'points' in selection and len(selection['points']) > 0:
+                    point = selection['points'][0]
+                    # Try different ways to get the point index
+                    region_idx = None
+                    if 'customdata' in point and point['customdata']:
+                        # customdata is a list, get first element
+                        if isinstance(point['customdata'], list) and len(point['customdata']) > 0:
+                            region_idx = point['customdata'][0]
+                        else:
+                            region_idx = point['customdata']
+                    elif 'pointIndex' in point:
+                        region_idx = point['pointIndex']
+                    elif 'pointNumber' in point:
+                        region_idx = point['pointNumber']
+                    elif 'location' in point:
+                        # For choropleth, location might be the index
+                        region_idx = point['location']
+                    
+                    if region_idx is not None:
+                        st.session_state.selected_region_index = region_idx
+            
+            # Year slider below the map
+            st.session_state.selected_year = st.slider(
+                "Select Year",
+                min_value=min_year,
+                max_value=max_year,
+                value=st.session_state.selected_year,
+                step=1,
+                key="year_slider"
+            )
+        
+        with col2:
+            st.subheader("Region Details")
+            
+            # Display selected region information
+            if st.session_state.selected_region_index is not None:
+                try:
+                    region_idx = st.session_state.selected_region_index
+                    
+                    # Try to get region by index position
+                    if isinstance(region_idx, (int, np.integer)) and 0 <= region_idx < len(gdf):
+                        region_row = gdf.iloc[region_idx]
+                    # Try to get region by index value
+                    elif region_idx in gdf.index:
+                        region_row = gdf.loc[region_idx]
+                    else:
+                        st.info("Invalid region selection. Click on a region in the map to view details.")
+                        region_row = None
+                    
+                    if region_row is not None:
+                        # Try different possible column names for region name
+                        region_name = None
+                        for col in ['region', 'name', 'NAME', 'Region', 'NAME_1', 'NAME_0']:
+                            if col in region_row:
+                                region_name = region_row[col]
+                                break
+                        
+                        gdlcode = region_row.get('gdlcode', 'Unknown')
+                        
+                        if region_name:
+                            st.write(f"**Region:** {region_name}")
+                        st.write(f"**GDL Code:** {gdlcode}")
+                except Exception as e:
+                    st.info("No region selected. Click on a region in the map to view details.")
+            else:
+                st.info("No region selected. Click on a region in the map to view details.")
+        
+    elif view_mode == "Bottleneck Overview":
+        st.info("Bottleneck overview visualization will be implemented in a future update.")
+        # Year slider below the placeholder
+        st.session_state.selected_year = st.slider(
+            "Select Year",
+            min_value=min_year,
+            max_value=max_year,
+            value=st.session_state.selected_year,
+            step=1,
+            key="year_slider_bottleneck"
+        )
 else:
     st.error("GeoJSON file not found")
 
