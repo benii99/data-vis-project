@@ -87,10 +87,11 @@ new-data-vis-project/
 ## Features
 
 - HDI overview with absolute or data-driven color scales
+- Bottleneck Overview choropleth that visualizes component imbalance (variance, average distance, or max gap)
 - Click-to-select region interactions with stored session state
 - Component evolution chart that highlights the bottleneck at each time step
 - Streamlit caching for GeoJSON, SHDI table, yearly HDI vectors, and per-region series
-- Modular architecture ready for adding Bottleneck Overview or comparative dashboards
+- Modular architecture ready for future comparative dashboards
 
 ---
 
@@ -143,8 +144,8 @@ Default browser → `http://localhost:8501`
 
 ## Usage Guide
 
-1. **Mode Selection**: Sidebar radio toggles between HDI Overview (current) and placeholder Bottleneck Overview.
-2. **Color Scale**: choose `Absolute (0–1)` or `Range (dynamic)` scale for the choropleth.
+1. **Mode Selection**: Sidebar radio toggles between HDI Overview and Bottleneck Overview.
+2. **Color Scale**: choose `Absolute (0–1)` or `Range (dynamic)` scale for the choropleth. Bottleneck view also exposes disparity metric selection (variance, average distance, max gap).
 3. **Map Interaction**: click any region to load its details; slider beneath the map controls the displayed year.
 4. **Detail Pane**: shows selected region metadata and the component evolution chart with bottleneck shading.
 5. **Session State**: the latest selected year/region persist across reruns for a smoother workflow.
@@ -180,7 +181,7 @@ The Streamlit app consumes only the processed CSV + simplified GeoJSON and leave
 
 ## Future Enhancements
 
-1. Implement the Bottleneck Overview mode (e.g., stacked bars or radar charts per component).
+1. Expand Bottleneck Overview with additional metrics (e.g., component variance trends, radar charts).
 2. Gender disaggregation toggle based on `*_f` / `*_m` columns.
 3. Comparative view to overlay multiple regions’ trajectories.
 4. Export buttons (CSV or PNG) for selected regions.
@@ -197,7 +198,7 @@ The Streamlit app consumes only the processed CSV + simplified GeoJSON and leave
 Recommended citation:
 
 ```
-Global Data Lab. (2024). Subnational Human Development Index Database (v8.3).
+Global Data Lab. (2024). Subnational Human Development Index Database (v8.3). 
 Institute for Management Research, Radboud University. https://globaldatalab.org/shdi/
 ```
 
