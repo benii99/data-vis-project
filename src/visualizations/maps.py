@@ -279,6 +279,99 @@ def build_component_bottleneck_map(
 
     return fig, region_indices
 
+from plotly.subplots import make_subplots
+
+def build_three_map(
+    gdf,
+    geojson_data,
+    components: Sequence[str],
+    component_values: Sequence[float],
+) -> Tuple[go.Figure, List[int]]:
+    region_indices = gdf.index.tolist()
+    #fig = go.Figure()
+    fig = make_subplots(rows=2, cols=1, subplot_titles=['test1', 'test2'],
+    specs=[[{"type": "mapbox"}], [{"type": "mapbox"}]])
+
+    component_order = ["health", "education", "income"]
+    colorbar_positions = {
+        "health": dict(y=0.86),
+        "education": dict(y=0.58),
+        "income": dict(y=0.30),
+    }
+
+    for component in component_order:
+        indices = [
+            region_indices[i]
+            for i, comp in enumerate(components)
+            if comp == component and not np.isnan(component_values[i])
+        ]
+        if not indices:
+            continue
+
+        values = [
+            component_values[i]
+            for i, comp in enumerate(components)
+            if comp == component and not np.isnan(component_values[i])
+        ]
+
+        texts = [
+            gdf.loc[idx, "gdlcode"] if hasattr(gdf, "loc") else gdf["gdlcode"][idx]
+            for idx in indices
+        ]
+
+    fig.add_trace(
+        go.Choroplethmapbox(
+            geojson=geojson_data,
+            locations=indices,
+            z=values,
+            zmin=0,
+            zmax=1,
+            colorscale=COMPONENT_GRADIENTS[component],
+            marker=dict(line=dict(color="white", width=0.5)),
+            text=texts,
+            customdata=[[idx] for idx in indices],
+            colorbar=dict(
+                title=dict(text=f"{component.capitalize()} Bottleneck"),
+                thickness=12,
+                len=0.23,
+                y=colorbar_positions[component]["y"],
+                yanchor="middle",
+            ),
+            name=f"{component.capitalize()}",
+            legendgroup=component,
+            showlegend=True,
+        ),
+        row=1,col=1
+    )
+
+    fig.add_trace(
+        go.Choroplethmapbox(
+            geojson=geojson_data,
+            locations=indices,
+            z=values,
+            zmin=0,
+            zmax=1,
+            colorscale=COMPONENT_GRADIENTS[component],
+            marker=dict(line=dict(color="white", width=0.5)),
+            text=texts,
+            customdata=[[idx] for idx in indices],
+            colorbar=dict(
+                title=dict(text=f"{component.capitalize()} Bottleneck"),
+                thickness=12,
+                len=0.23,
+                y=colorbar_positions[component]["y"],
+                yanchor="middle",
+            ),
+            name=f"{component.capitalize()}",
+            legendgroup=component,
+            showlegend=True,
+        ),
+        row=2,col=1
+    )
+
+    return fig, region_indices
+
+
 
 __all__ = [
     "build_hdi_map",

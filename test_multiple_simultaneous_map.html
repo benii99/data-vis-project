@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+  <div id="map1" style="width:48%;display:grid;"></div>
+  <div id="map2" style="width:48%;display:grid;"></div>
+  <div id="map3" style="width:48%;display:grid;"></div>
+
+  <script>
+    // Load counties + data
+    Promise.all([
+      fetch("https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json").then(r => r.json()),
+      fetch("https://raw.githubusercontent.com/plotly/datasets/master/fips-unemp-16.csv").then(r => r.text())
+    ]).then(([counties, csv]) => {
+      let rows = csv.split("\n").slice(1).map(r => r.split(","));
+      let fips = rows.map(r => r[0]);
+      let unemp = rows.map(r => parseFloat(r[1]));
+
+      var trace1 = {
+        type: "choroplethmapbox",
+        geojson: counties,
+        locations: fips,
+        z: unemp,
+        colorscale: "Viridis",
+        marker: {opacity:0.75},
+        colorbar: {title:"Normal"}
+      };
+
+      var trace2 = {
+        type: "choroplethmapbox",
+        geojson: counties,
+        locations: fips,
+        z: unemp.map(v => Math.log10(v)),
+        colorscale: "Viridis",
+        marker: {opacity:0.75},
+        colorbar: {title:"Log10"}
+      };
+
+      var trace3 = {
+        type: "choroplethmapbox",
+        geojson: counties,
+        locations: fips,
+        z: unemp.map(v => Math.min(v, 0.5)),
+        colorscale: "Viridis",
+        marker: {opacity:0.75},
+        colorbar: {title:"Log10"}
+      };
+
+      var layout = {
+        mapbox: {
+          style: "carto-positron",
+          center: {lat:37.0902, lon:-95.7129},
+          zoom: 3.4
+        },
+        margin: {l:0,r:0,t:0,b:0}
+      };
+
+      Plotly.newPlot("map1", [trace1], layout);
+      Plotly.newPlot("map2", [trace2], layout);
+      Plotly.newPlot("map3", [trace2], layout);
+
+      function throttle(fn, delay) {
+        let lastCall = 0;
+        return function(...args) {
+            const now = Date.now();
+            if (now - lastCall >= delay) {
+            lastCall = now;
+            fn(...args);
+            }
+        };
+        }
+
+        const time = 200
+
+        const syncMap1 = throttle(function(e) {
+            Plotly.relayout("map2", e);
+            Plotly.relayout("map3", e);
+        }, time);
+
+        const syncMap2 = throttle(function(e) {
+            Plotly.relayout("map1", e);
+            Plotly.relayout("map3", e);
+        }, time);
+        
+        const syncMap3 = throttle(function(e) {
+            Plotly.relayout("map1", e);
+            Plotly.relayout("map2", e);
+        }, time);
+
+        document.getElementById("map1").on('plotly_relayouting', syncMap1);
+        document.getElementById("map2").on('plotly_relayouting', syncMap2);
+        document.getElementById("map3").on('plotly_relayouting', syncMap2);
+
+      // Continuous sync while panning/zooming
+      /*document.getElementById("map1").on('plotly_relayouting', function(e) {
+        Plotly.relayout("map2", e);
+        Plotly.relayout("map3", e);
+      });
+      document.getElementById("map2").on('plotly_relayouting', function(e) {
+        Plotly.relayout("map1", e);
+        Plotly.relayout("map3", e);
+      });
+      document.getElementById("map3").on('plotly_relayouting', function(e) {
+        Plotly.relayout("map1", e);
+        Plotly.relayout("map2", e);
+      });*/
+    });
+  </script>
+</body>
+</html>
