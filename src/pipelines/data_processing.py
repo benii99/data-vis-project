@@ -104,7 +104,7 @@ def process_hdi_data(raw_path, output_path, verbose=True):
 
 if __name__ == "__main__":
     # Define paths
-    project_root = Path(__file__).parent.parent
+    project_root = Path(__file__).resolve().parents[2]
     raw_path = project_root / "data" / "raw" / "Subnational HDI Data v8.3.csv"
     output_path = project_root / "data" / "processed" / "subnational_hdi_processed.csv"
     

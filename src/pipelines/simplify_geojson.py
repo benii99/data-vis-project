@@ -85,7 +85,7 @@ def simplify_multiple_tolerances(input_path, output_dir):
 
 if __name__ == "__main__":
     # Define paths
-    project_root = Path(__file__).parent.parent
+    project_root = Path(__file__).resolve().parents[2]
     #input_geojson = project_root / "data" / "geojson" / "geoBoundariesCGAZ_ADM1.geojson"
     #output_geojson = project_root / "data" / "geojson" / "geoBoundariesCGAZ_ADM1_simplified_5km.geojson"
 

@@ -39,7 +39,7 @@ def associate_shdi_with_geojson(gdf_path, shdi_path, output_path):
 
 if __name__ == "__main__":
     # Define paths
-    project_root = Path(__file__).parent.parent
+    project_root = Path(__file__).resolve().parents[2]
     shdi_path = project_root / "data" / "processed" / "subnational_hdi_processed.csv"
     gdf_path = project_root / "data" / "geojson" / "geoBoundariesCGAZ_ADM1_simplified_5km.geojson"
     output_path = project_root / "data" / "processed" / "geojson_shdi.geojson"
