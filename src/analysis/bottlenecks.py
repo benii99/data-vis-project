@@ -2,7 +2,7 @@
 Helpers to detect HDI bottlenecks and related metadata.
 """
 
-from typing import Dict, Iterable, List, Optional, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -69,12 +69,53 @@ def get_bottleneck_components(
     return results
 
 
+def detect_row_bottleneck_with_value(row: pd.Series) -> Tuple[Optional[str], Optional[float]]:
+    """
+    Return bottleneck component and its value for a given row.
+    """
+    component = detect_row_bottleneck(row)
+    if not component:
+        return None, None
+    column = COMPONENT_COLUMNS[component]
+    return component, row.get(column, np.nan)
+
+
+def get_bottleneck_components_with_values(
+    shdi_df: pd.DataFrame,
+    year: int,
+    gdlcodes: Sequence[str],
+    missing_label: str = "missing",
+) -> Tuple[List[str], List[float]]:
+    """
+    Return bottleneck component labels and their corresponding values for each region.
+    """
+    year_data = shdi_df[shdi_df["year"] == year].set_index("gdlcode")
+    components: List[str] = []
+    values: List[float] = []
+
+    for code in gdlcodes:
+        if code in year_data.index:
+            component, value = detect_row_bottleneck_with_value(year_data.loc[code])
+            components.append(component if component else missing_label)
+            if value is None or pd.isna(value):
+                values.append(np.nan)
+            else:
+                values.append(float(value))
+        else:
+            components.append(missing_label)
+            values.append(np.nan)
+
+    return components, values
+
+
 __all__ = [
     "detect_row_bottleneck",
     "detect_bottleneck_sequence",
     "component_color_map",
     "COMPONENT_COLUMNS",
     "get_bottleneck_components",
+    "detect_row_bottleneck_with_value",
+    "get_bottleneck_components_with_values",
 ]
 
 

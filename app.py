@@ -2,7 +2,7 @@ from pathlib import Path
 import numpy as np
 import streamlit as st
 
-from src.analysis.bottlenecks import get_bottleneck_components
+from src.analysis.bottlenecks import get_bottleneck_components_with_values
 from src.analysis.disparity import (
     METRIC_DESCRIPTIONS,
     METRIC_LABELS,
@@ -68,7 +68,7 @@ def get_disparity_metric_data(metric_key, gdlcodes_tuple, year, _data_hash):
 def get_component_bottleneck_data(gdlcodes_tuple, year, _data_hash):
     """Compute bottleneck component per region for categorical map."""
     shdi_df = load_shdi_cached(str(SHDI_PROCESSED_PATH))
-    return get_bottleneck_components(shdi_df, year, gdlcodes_tuple)
+    return get_bottleneck_components_with_values(shdi_df, year, gdlcodes_tuple)
 
 
 gdf = load_geojson_cached(str(geojson_path), str(GEOJSON_ORIGINAL_PATH)) if geojson_path.exists() else None
@@ -359,15 +359,17 @@ if gdf is not None:
         geojson_data = get_geojson_data(gdf)
         gdlcodes = gdf["gdlcode"].values
         data_hash = len(shdi)
-        bottleneck_components = get_component_bottleneck_data(
+        bottleneck_components, bottleneck_values = get_component_bottleneck_data(
             tuple(gdlcodes), st.session_state.selected_year, data_hash
         )
         fig, region_indices = build_component_bottleneck_map(
             gdf,
             geojson_data,
             bottleneck_components,
+            bottleneck_values,
         )
         component_lookup = {idx: comp for idx, comp in zip(region_indices, bottleneck_components)}
+        value_lookup = {idx: val for idx, val in zip(region_indices, bottleneck_values)}
 
         col1, col2 = st.columns([2, 1])
 
@@ -443,10 +445,17 @@ if gdf is not None:
                         if gdlcode != 'Unknown':
                             component_label = component_lookup.get(region_idx)
                             if component_label and component_label != "missing":
-                                st.metric(
-                                    label="Bottleneck Component",
-                                    value=component_label.capitalize()
-                                )
+                                value = value_lookup.get(region_idx)
+                                if value is not None and not np.isnan(value):
+                                    st.metric(
+                                        label=f"{component_label.capitalize()} Index",
+                                        value=f"{value:.3f}"
+                                    )
+                                else:
+                                    st.metric(
+                                        label="Bottleneck Component",
+                                        value=component_label.capitalize()
+                                    )
 
                             data_hash = len(shdi)
                             region_data = get_region_timeseries_cached(gdlcode, data_hash)

@@ -16,21 +16,20 @@ COMPONENT_COLOR_HEX = {
     "missing": "#E0E0E0",
 }
 
-COMPONENT_NUMERIC_VALUES = {
-    "health": 0.1,
-    "education": 0.5,
-    "income": 0.9,
-    "missing": 1.1,
+COMPONENT_GRADIENTS = {
+    "health": [
+        [0.0, "#F8BBD0"],  # Light pink
+        [1.0, "#D81B60"],
+    ],
+    "education": [
+        [0.0, "#BBDEFB"],  # Light blue
+        [1.0, "#1E88E5"],
+    ],
+    "income": [
+        [0.0, "#FFF8E1"],  # Light amber
+        [1.0, "#FFC107"],
+    ],
 }
-
-COMPONENT_COLOR_SCALE = [
-    [0.0, COMPONENT_COLOR_HEX["health"]],
-    [0.32, COMPONENT_COLOR_HEX["health"]],
-    [0.33, COMPONENT_COLOR_HEX["education"]],
-    [0.66, COMPONENT_COLOR_HEX["education"]],
-    [0.67, COMPONENT_COLOR_HEX["income"]],
-    [1.0, COMPONENT_COLOR_HEX["income"]],
-]
 
 
 def compute_hdi_scale(values: Sequence[float], mode: str) -> Tuple[List[float], float, float]:
@@ -176,32 +175,94 @@ def build_disparity_map(
     return fig, region_indices, display_zmin, display_zmax
 
 
-def build_component_bottleneck_map(gdf, geojson_data, components: Sequence[str]) -> Tuple[go.Figure, List[int]]:
+def build_component_bottleneck_map(
+    gdf,
+    geojson_data,
+    components: Sequence[str],
+    component_values: Sequence[float],
+) -> Tuple[go.Figure, List[int]]:
     region_indices = gdf.index.tolist()
-    numeric_values = [
-        COMPONENT_NUMERIC_VALUES.get(component, COMPONENT_NUMERIC_VALUES["missing"])
-        for component in components
-    ]
+    fig = go.Figure()
 
-    fig = go.Figure(
-        go.Choroplethmapbox(
-            geojson=geojson_data,
-            locations=gdf.index,
-            z=numeric_values,
-            colorscale=COMPONENT_COLOR_SCALE,
-            zmin=0,
-            zmax=1,
-            showscale=True,
-            marker=dict(line=dict(color="white", width=0.5)),
-            text=gdf["gdlcode"],
-            customdata=[[idx] for idx in region_indices],
-            colorbar=dict(
-                title="Bottleneck",
-                tickvals=[COMPONENT_NUMERIC_VALUES["health"], COMPONENT_NUMERIC_VALUES["education"], COMPONENT_NUMERIC_VALUES["income"]],
-                ticktext=["Health", "Education", "Income"],
-            ),
+    component_order = ["health", "education", "income"]
+    colorbar_positions = {
+        "health": dict(y=0.86),
+        "education": dict(y=0.58),
+        "income": dict(y=0.30),
+    }
+
+    for component in component_order:
+        indices = [
+            region_indices[i]
+            for i, comp in enumerate(components)
+            if comp == component and not np.isnan(component_values[i])
+        ]
+        if not indices:
+            continue
+
+        values = [
+            component_values[i]
+            for i, comp in enumerate(components)
+            if comp == component and not np.isnan(component_values[i])
+        ]
+
+        texts = [
+            gdf.loc[idx, "gdlcode"] if hasattr(gdf, "loc") else gdf["gdlcode"][idx]
+            for idx in indices
+        ]
+
+        fig.add_trace(
+            go.Choroplethmapbox(
+                geojson=geojson_data,
+                locations=indices,
+                z=values,
+                zmin=0,
+                zmax=1,
+                colorscale=COMPONENT_GRADIENTS[component],
+                marker=dict(line=dict(color="white", width=0.5)),
+                text=texts,
+                customdata=[[idx] for idx in indices],
+                colorbar=dict(
+                    title=dict(text=f"{component.capitalize()} Bottleneck"),
+                    thickness=12,
+                    len=0.23,
+                    y=colorbar_positions[component]["y"],
+                    yanchor="middle",
+                ),
+                name=f"{component.capitalize()}",
+                legendgroup=component,
+                showlegend=True,
+            )
         )
-    )
+
+    # Handle missing components with neutral color
+    missing_indices = [
+        region_indices[i]
+        for i, comp in enumerate(components)
+        if comp == "missing"
+    ]
+    if missing_indices:
+        missing_texts = [
+            gdf.loc[idx, "gdlcode"] if hasattr(gdf, "loc") else gdf["gdlcode"][idx]
+            for idx in missing_indices
+        ]
+        fig.add_trace(
+            go.Choroplethmapbox(
+                geojson=geojson_data,
+                locations=missing_indices,
+                z=[0] * len(missing_indices),
+                zmin=0,
+                zmax=1,
+                colorscale=[[0.0, COMPONENT_COLOR_HEX["missing"]], [1.0, COMPONENT_COLOR_HEX["missing"]]],
+                marker=dict(line=dict(color="white", width=0.5)),
+                text=missing_texts,
+                customdata=[[idx] for idx in missing_indices],
+                showscale=False,
+                name="Missing",
+                legendgroup="missing",
+                showlegend=True,
+            )
+        )
 
     fig.update_traces(
         selected=dict(marker=dict(opacity=1.0)),

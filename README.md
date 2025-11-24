@@ -88,7 +88,7 @@ new-data-vis-project/
 
 - HDI overview with absolute or data-driven color scales
 - Bottleneck Overview choropleth that visualizes component imbalance (variance, average distance, or max gap)
-- 3 Component Bottleneck view that colors each region by its limiting component (Health, Education, Income)
+- 3 Component Bottleneck view that colors each region by its limiting component with value-driven gradients (Health, Education, Income)
 - Click-to-select region interactions with stored session state
 - Component evolution chart that highlights the bottleneck at each time step
 - Streamlit caching for GeoJSON, SHDI table, yearly HDI vectors, and per-region series
@@ -146,7 +146,7 @@ Default browser → `http://localhost:8501`
 ## Usage Guide
 
 1. **Mode Selection**: Sidebar radio toggles between HDI Overview, Bottleneck Overview, and 3 Component Bottleneck.
-2. **Color Scale**: choose `Absolute (0–1)` or `Range (dynamic)` scale for the choropleth. Bottleneck view also exposes disparity metric selection (variance, average distance, max gap). The 3 Component view uses fixed colors (`#D81B60`, `#1E88E5`, `#FFC107`) for Health/Education/Income respectively.
+2. **Color Scale**: choose `Absolute (0–1)` or `Range (dynamic)` scale for the choropleth. Bottleneck view also exposes disparity metric selection (variance, average distance, max gap). The 3 Component view uses value-based gradients derived from `#D81B60`, `#1E88E5`, `#FFC107` for Health/Education/Income respectively, so higher component values produce richer hues.
 3. **Map Interaction**: click any region to load its details; slider beneath the map controls the displayed year.
 4. **Detail Pane**: shows selected region metadata and the component evolution chart with bottleneck shading.
 5. **Session State**: the latest selected year/region persist across reruns for a smoother workflow.
