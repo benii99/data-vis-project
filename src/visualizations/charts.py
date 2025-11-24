@@ -53,9 +53,9 @@ def create_component_evolution_chart(region_data: pd.DataFrame) -> Optional[go.F
         )
 
     component_traces = [
-        ("Health", health, "rgb(220, 20, 60)"),
-        ("Education", education, "rgb(30, 144, 255)"),
-        ("Income", income, "rgb(34, 139, 34)"),
+        ("Health", health, "#D81B60"),
+        ("Education", education, "#1E88E5"),
+        ("Income", income, "#FFC107"),
     ]
 
     for name, values, color in component_traces:
@@ -76,7 +76,7 @@ def create_component_evolution_chart(region_data: pd.DataFrame) -> Optional[go.F
             y=hdi,
             mode="lines+markers",
             name="HDI",
-            line=dict(color="rgb(128, 128, 128)", width=2, dash="dash"),
+            line=dict(color="#9E9E9E", width=2, dash="dash"),
             marker=dict(size=4),
         )
     )

@@ -9,6 +9,29 @@ import plotly.graph_objects as go
 
 from src.analysis.disparity import METRIC_ABSOLUTE_RANGES
 
+COMPONENT_COLOR_HEX = {
+    "health": "#D81B60",
+    "education": "#1E88E5",
+    "income": "#FFC107",
+    "missing": "#E0E0E0",
+}
+
+COMPONENT_NUMERIC_VALUES = {
+    "health": 0.1,
+    "education": 0.5,
+    "income": 0.9,
+    "missing": 1.1,
+}
+
+COMPONENT_COLOR_SCALE = [
+    [0.0, COMPONENT_COLOR_HEX["health"]],
+    [0.32, COMPONENT_COLOR_HEX["health"]],
+    [0.33, COMPONENT_COLOR_HEX["education"]],
+    [0.66, COMPONENT_COLOR_HEX["education"]],
+    [0.67, COMPONENT_COLOR_HEX["income"]],
+    [1.0, COMPONENT_COLOR_HEX["income"]],
+]
+
 
 def compute_hdi_scale(values: Sequence[float], mode: str) -> Tuple[List[float], float, float]:
     """
@@ -153,6 +176,49 @@ def build_disparity_map(
     return fig, region_indices, display_zmin, display_zmax
 
 
+def build_component_bottleneck_map(gdf, geojson_data, components: Sequence[str]) -> Tuple[go.Figure, List[int]]:
+    region_indices = gdf.index.tolist()
+    numeric_values = [
+        COMPONENT_NUMERIC_VALUES.get(component, COMPONENT_NUMERIC_VALUES["missing"])
+        for component in components
+    ]
+
+    fig = go.Figure(
+        go.Choroplethmapbox(
+            geojson=geojson_data,
+            locations=gdf.index,
+            z=numeric_values,
+            colorscale=COMPONENT_COLOR_SCALE,
+            zmin=0,
+            zmax=1,
+            showscale=True,
+            marker=dict(line=dict(color="white", width=0.5)),
+            text=gdf["gdlcode"],
+            customdata=[[idx] for idx in region_indices],
+            colorbar=dict(
+                title="Bottleneck",
+                tickvals=[COMPONENT_NUMERIC_VALUES["health"], COMPONENT_NUMERIC_VALUES["education"], COMPONENT_NUMERIC_VALUES["income"]],
+                ticktext=["Health", "Education", "Income"],
+            ),
+        )
+    )
+
+    fig.update_traces(
+        selected=dict(marker=dict(opacity=1.0)),
+        unselected=dict(marker=dict(opacity=0.7)),
+    )
+
+    fig.update_layout(
+        mapbox=dict(style="carto-positron", center=dict(lat=20, lon=0), zoom=1.5),
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=700,
+        dragmode="pan",
+        clickmode="event+select",
+    )
+
+    return fig, region_indices
+
+
 __all__ = [
     "build_hdi_map",
     "compute_hdi_scale",
@@ -160,6 +226,8 @@ __all__ = [
     "build_disparity_map",
     "compute_disparity_scale",
     "DISPARITY_COLORSCALE",
+    "build_component_bottleneck_map",
+    "COMPONENT_COLOR_HEX",
 ]
 
 

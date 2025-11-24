@@ -2,6 +2,7 @@ from pathlib import Path
 import numpy as np
 import streamlit as st
 
+from src.analysis.bottlenecks import get_bottleneck_components
 from src.analysis.disparity import (
     METRIC_DESCRIPTIONS,
     METRIC_LABELS,
@@ -11,7 +12,7 @@ from src.analysis.regions import available_year_bounds, get_region_timeseries, g
 from src.data.loaders import load_geojson, load_shdi_dataframe
 from src.data.paths import GEOJSON_ACTIVE_PATH, GEOJSON_ORIGINAL_PATH, SHDI_PROCESSED_PATH
 from src.visualizations.charts import create_component_evolution_chart
-from src.visualizations.maps import build_disparity_map, build_hdi_map
+from src.visualizations.maps import build_component_bottleneck_map, build_disparity_map, build_hdi_map
 
 st.set_page_config(page_title="Subnational HDI Explorer", layout="wide")
 
@@ -63,6 +64,13 @@ def get_disparity_metric_data(metric_key, gdlcodes_tuple, year, _data_hash):
     return get_disparity_values(shdi_df, year, gdlcodes_tuple, metric_key)
 
 
+@st.cache_data
+def get_component_bottleneck_data(gdlcodes_tuple, year, _data_hash):
+    """Compute bottleneck component per region for categorical map."""
+    shdi_df = load_shdi_cached(str(SHDI_PROCESSED_PATH))
+    return get_bottleneck_components(shdi_df, year, gdlcodes_tuple)
+
+
 gdf = load_geojson_cached(str(geojson_path), str(GEOJSON_ORIGINAL_PATH)) if geojson_path.exists() else None
 shdi = load_shdi_cached(str(SHDI_PROCESSED_PATH))
 min_year, max_year = available_year_bounds(shdi)
@@ -71,7 +79,7 @@ min_year, max_year = available_year_bounds(shdi)
 st.sidebar.header("View Mode")
 view_mode = st.sidebar.radio(
     "Select Mode",
-    ["HDI Overview", "Bottleneck Overview"],
+    ["HDI Overview", "Bottleneck Overview", "3 Component Bottleneck"],
     index=0
 )
 
@@ -99,6 +107,9 @@ elif view_mode == "Bottleneck Overview":
         index=0,
         help="Absolute uses preset ranges per metric; Range adapts to current year.",
     )
+elif view_mode == "3 Component Bottleneck":
+    st.sidebar.subheader("3 Component Bottleneck")
+    st.sidebar.caption("Each region is colored by the component (Health, Education, Income) with the lowest index in the selected year.")
 
 # Display header
 st.header("Subnational HDI Explorer")
@@ -324,6 +335,117 @@ if gdf is not None:
                                 st.metric(
                                     label=METRIC_LABELS[disparity_metric],
                                     value=f"{region_metric:.3f}"
+                                )
+
+                            data_hash = len(shdi)
+                            region_data = get_region_timeseries_cached(gdlcode, data_hash)
+
+                            if not region_data.empty:
+                                st.subheader("HDI Component Evolution")
+                                evolution_fig = create_component_evolution_chart(region_data)
+                                if evolution_fig:
+                                    st.plotly_chart(
+                                        evolution_fig,
+                                        use_container_width=True,
+                                        config={'displayModeBar': False}
+                                    )
+                            else:
+                                st.info("No time series data available for this region.")
+                except Exception:
+                    st.info("No region selected. Click on a region in the map to view details.")
+            else:
+                st.info("No region selected. Click on a region in the map to view details.")
+    elif view_mode == "3 Component Bottleneck":
+        geojson_data = get_geojson_data(gdf)
+        gdlcodes = gdf["gdlcode"].values
+        data_hash = len(shdi)
+        bottleneck_components = get_component_bottleneck_data(
+            tuple(gdlcodes), st.session_state.selected_year, data_hash
+        )
+        fig, region_indices = build_component_bottleneck_map(
+            gdf,
+            geojson_data,
+            bottleneck_components,
+        )
+        component_lookup = {idx: comp for idx, comp in zip(region_indices, bottleneck_components)}
+
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            event = st.plotly_chart(
+                fig,
+                use_container_width=True,
+                config={
+                    'scrollZoom': True,
+                    'displayModeBar': True,
+                    'displaylogo': False
+                },
+                on_select="rerun",
+                key="component_bottleneck_map_chart"
+            )
+
+            if event and 'selection' in event:
+                selection = event['selection']
+                if 'points' in selection and len(selection['points']) > 0:
+                    point = selection['points'][0]
+                    region_idx = None
+                    if 'customdata' in point and point['customdata']:
+                        if isinstance(point['customdata'], list) and len(point['customdata']) > 0:
+                            region_idx = point['customdata'][0]
+                        else:
+                            region_idx = point['customdata']
+                    elif 'pointIndex' in point:
+                        region_idx = point['pointIndex']
+                    elif 'pointNumber' in point:
+                        region_idx = point['pointNumber']
+                    elif 'location' in point:
+                        region_idx = point['location']
+
+                    if region_idx is not None:
+                        st.session_state.selected_region_index = region_idx
+
+            st.session_state.selected_year = st.slider(
+                "Select Year",
+                min_value=min_year,
+                max_value=max_year,
+                value=st.session_state.selected_year,
+                step=1,
+                key="year_slider_component_bottleneck"
+            )
+
+        with col2:
+            st.subheader("Region Details")
+            if st.session_state.selected_region_index is not None:
+                try:
+                    region_idx = st.session_state.selected_region_index
+
+                    if isinstance(region_idx, (int, np.integer)) and 0 <= region_idx < len(gdf):
+                        region_row = gdf.iloc[region_idx]
+                    elif region_idx in gdf.index:
+                        region_row = gdf.loc[region_idx]
+                    else:
+                        st.info("Invalid region selection. Click on a region in the map to view details.")
+                        region_row = None
+
+                    if region_row is not None:
+                        region_name = None
+                        for col in ['region', 'name', 'NAME', 'Region', 'NAME_1', 'NAME_0']:
+                            if col in region_row:
+                                region_name = region_row[col]
+                                break
+
+                        gdlcode = region_row.get('gdlcode', 'Unknown')
+
+                        if region_name:
+                            st.write(f"**Region:** {region_name}")
+                        st.write(f"**GDL Code:** {gdlcode}")
+
+                        if gdlcode != 'Unknown':
+                            component_label = component_lookup.get(region_idx)
+                            if component_label and component_label != "missing":
+                                st.metric(
+                                    label="Bottleneck Component",
+                                    value=component_label.capitalize()
                                 )
 
                             data_hash = len(shdi)
