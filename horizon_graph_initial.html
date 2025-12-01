@@ -1,0 +1,175 @@
+<head>
+  <style>
+    body { margin: 0; }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/5.1.5/turf.min.js"></script>
+  <script src="https://unpkg.com/d3-horizon"></script>
+  <!--<script src="../../dist/d3-horizon.js"></script>-->
+</head>
+<body>
+  <div id="horizon-chart" style="display:grid"></div>
+  <script>
+    const genRandomData = (nPoints = 100) => {
+      let prevVal = 0;
+      return [...new Array(nPoints)].map((_,i) => [i, prevVal += (Math.random() - 0.5)]);
+    };
+
+    d3.csv("http://127.0.0.1:8080/data//processed/subnational_hdi_processed.csv").then(
+      (shdi) => {
+        const regional_data = shdi.filter(x => x.region === 'Copperbelt')
+
+        console.log(regional_data)
+
+        var factors = "shdi,healthindex,edindex,incindex,lifexp,esch,msch,lgnic".split(",")
+
+        function pearson_correlation(x, y) {
+          if (x.length != y.length) {
+            return 0
+          }
+
+          _x = []
+          _y = []
+
+          for (var i= 0; i< x.length; i++) {
+            if (isNaN(x[i]) || isNaN(y[i])) {
+              console.log("missing_value")
+              continue
+            } else {
+              _x.push(x[i])
+              _y.push(y[i])
+            }
+          }
+
+          var x_average = _x.reduce((acc, k) => acc + k, 0) / _x.length;
+          var y_average = _y.reduce((acc, k) => acc + k, 0) / _y.length;
+
+          var zipped = _x.map((a, i) => [a, _y[i]])
+          var nominator = zipped.map(k => {
+            var x_i = k[0]
+            var y_i = k[1]
+
+
+            return (x_i - x_average) * (y_i - y_average)
+          }).reduce((a,b) => a + b)
+
+
+
+          var x_term = _x.map(k => (k - x_average) ** 2).reduce((acc, k) => acc + k, 0)
+          var y_term = _y.map(k => (k - y_average) ** 2).reduce((acc, k) => acc + k, 0)
+          var denominator = Math.sqrt(x_term) * Math.sqrt(y_term)
+
+
+
+          return nominator / denominator
+        }
+
+        console.log(factors)
+
+        var cross_correlations = factors.map(
+          factor1 => {
+            const series1 = regional_data.map(x => parseFloat(x[factor1]))
+            console.log(series1)
+
+            return factors.map( 
+              factor2 => {
+                if (factor1 === factor2) {
+                  return 1
+                }
+
+                const series2 = regional_data.map(x => parseFloat(x[factor2]))
+
+                return pearson_correlation(series1, series2)
+              }
+            )
+          }
+        )
+
+        console.log("___")
+
+        console.log(cross_correlations)
+
+        // Source - https://stackoverflow.com/a
+        // Posted by chacmoolvm, modified by community. See post 'Timeline' for change history
+        // Retrieved 2025-12-01, License - CC BY-SA 4.0
+
+        function perm(xs) {
+          let ret = [];
+
+          for (let i = 0; i < xs.length; i = i + 1) {
+            let rest = perm(xs.slice(0, i).concat(xs.slice(i + 1)));
+
+            if(!rest.length) {
+              ret.push([xs[i]])
+            } else {
+              for(let j = 0; j < rest.length; j = j + 1) {
+                ret.push([xs[i]].concat(rest[j]))
+              }
+            }
+          }
+          return ret;
+        }
+
+        const permutations = perm(factors)
+        console.log(permutations)
+        const permutation_order_correlations = permutations.map(
+          permutation_order => permutation_order.slice(0, -1).reduce((acc, x, i) => 
+            acc + cross_correlations[factors.indexOf(permutation_order[i])][factors.indexOf(permutation_order[i+1])], 0)
+        )
+        console.log(permutation_order_correlations)
+
+        var best_order_index = permutation_order_correlations.reduce((maxIndex, x, i) => x > permutation_order_correlations[maxIndex] ? i : maxIndex, 0)
+
+        console.log(permutation_order_correlations[best_order_index])
+
+        var best_order = permutations[best_order_index]
+
+        console.log(best_order)
+
+        factor_dict = {
+          "shdi" : "Regional human development index (SHDI)",
+          "healthindex" : "Health index", 
+          "edindex" : "Education index",
+          "incindex" : "Income index",
+          "lifexp" : "Life expectancy",
+          "esch" : "Expected years of schooling",
+          "msch" : "Mean amount of schooling",
+          "lgnic": "Log gross national income per capita"
+
+        }
+
+
+
+        best_order.forEach(
+          factor => {
+            d3.select("#horizon-chart").append("div").attr("id","horizon-chart-" + factor).style("display","flex")
+            
+            const series = regional_data.map((x, i) => [i, parseFloat(x[factor])])
+
+            const average = series.filter(x => x[1]).map(x => x[1]).reduce((acc,x) => acc + x) / series.filter(x => x[1]).length
+
+            new Horizon(document.getElementById("horizon-chart-" + factor))
+            .width(300)
+            .height(30)
+            .bands(4)
+            .mode("mirror")
+            .data(series.map(x => [x[0], x[1] - average]).filter(x => x[1]))
+
+            
+            d3.select("#horizon-chart-" + factor).append("p").text(factor_dict[factor])
+        })
+
+        /*var series = shdi.filter(x => x.region === 'Central (Kabul Wardak Kapisa Logar Parwan Panjsher)').map((x, i) => [i, x.shdi])
+
+        new Horizon(document.getElementById('horizon-chart-' + factor))
+          .width(400)
+          .height(50)
+          .data(series)
+          
+        console.log(series)
+        console.log(genRandomData())*/
+      } );
+    
+  </script>
+</body>
