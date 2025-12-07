@@ -1,0 +1,442 @@
+<!-- Based on https://observablehq.com/@d3/horizon-chart/2 + https://observablehq.com/@d3/horizon-chart-ii -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>SHDI Horizon chart</title>
+<style>
+  body { margin: 0; font: 12px/1.2 sans-serif; }
+  #chart-wrap { padding: 8px; position: relative; max-width: 920px; }
+  #chart { background: white; border-radius: 6px; padding: 6px; }
+  svg { width: 50%; height: auto; display: block; }
+  .label { font: 14px sans-serif; fill: #111; }
+  .axis-tick { font-size: 14px; fill: #111; }
+  .tooltip {
+    position: absolute; pointer-events: none; display: none;
+    background: #fff; border: 1px solid #999; padding: 6px 8px;
+    border-radius: 4px; box-shadow: 0 2px 6px rgba(0,0,0,.12);
+    font: 13px sans-serif; color: #111; white-space: nowrap; z-index: 10;
+  }
+  .hover-line { stroke: #333; stroke-width: 1.5; stroke-dasharray: 3 3; pointer-events: none; }
+  .missing-box { fill: #e6e6e6; opacity: 0.95; }
+  .hit { fill: transparent; cursor: pointer; }
+  /* Legend container below the chart */
+  #legend {
+    margin-top: 10px;
+    display: block;
+    width: 100%;
+    max-width: 760px;
+    font: 13px sans-serif;
+    color: #111;
+  }
+  .legend-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .legend-swatch { width: 18px; height: 18px; border: 1px solid #999; border-radius: 3px; flex: 0 0 18px; }
+  .legend-label { font-size: 13px; }
+  .legend-caption { margin-top: 6px; font-size: 12px; color: #444; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+</head>
+<body>
+<div id="chart-wrap">
+  <div id="chart"></div>
+  <div id="legend" aria-hidden="false"></div>
+</div>
+<div id="tooltip" class="tooltip"></div>
+
+<script>
+/* ---------------- CONFIG ---------------- */
+const csvUrl = "http://127.0.0.1:8080/data/processed/subnational_hdi_processed.csv"; // change if needed
+const factors = "shdi,healthindex,edindex,incindex,lifexp,esch,msch,lgnic".split(",");
+const labels = {
+  shdi: "SHDI",
+  healthindex: "Health index",
+  edindex: "Education index",
+  incindex: "Income index",
+  lifexp: "Life expectancy",
+  esch: "Expected years of schooling",
+  msch: "Mean amount of schooling",
+  lgnic: "Log gross national income per capita"
+};
+const overlap = 3;           // amount of bands 
+const step = 40;             // band height
+const mirror = true;         // mirror negative bands
+const width = 350;           // svg width
+const margin = { top: 30, right: 10, bottom: 0, left: 10 };
+const tickEveryYears = 5;    // x-axis label frequency
+var region = "Copperbelt"
+//region = "Bumthang"
+//region = "Zhejiang"
+
+/* ---------------- HELPERS ---------------- */
+const toNumber = s => {
+  if (s == null) return NaN;
+  const str = String(s).trim();
+  if (str === "") return NaN;
+  const n = +str.replace(/\u00A0/g, "");
+  return isNaN(n) ? NaN : n;
+};
+
+function pearson(x, y) {
+  if (!Array.isArray(x) || !Array.isArray(y) || x.length !== y.length) return 0;
+  const a = [], b = [];
+  for (let i = 0; i < x.length; i++) {
+    if (!isNaN(x[i]) && !isNaN(y[i])) { a.push(x[i]); b.push(y[i]); }
+  }
+  if (!a.length) return 0;
+  const mx = d3.mean(a), my = d3.mean(b);
+  let num = 0, sx = 0, sy = 0;
+  for (let i = 0; i < a.length; i++) {
+    const dx = a[i] - mx, dy = b[i] - my;
+    num += dx * dy; sx += dx * dx; sy += dy * dy;
+  }
+  const den = Math.sqrt(sx) * Math.sqrt(sy);
+  return den === 0 ? 0 : num / den;
+}
+
+function permutations(xs) {
+  if (xs.length === 0) return [[]];
+  const out = [];
+  for (let i = 0; i < xs.length; i++) {
+    const rest = permutations(xs.slice(0, i).concat(xs.slice(i + 1)));
+    for (const r of rest) out.push([xs[i], ...r]);
+  }
+  return out;
+}
+
+/* ---------------- MAIN ---------------- */
+d3.csv(csvUrl).then(rows => {
+  // Parse rows, keep raw strings and numeric values separately; filter region
+  const parsed = rows
+    .filter(r => r.region === region)
+    .map(r => {
+      const year = parseInt(r.year ?? r.Year ?? r.YEAR, 10);
+      const date = Number.isFinite(year) ? new Date(Date.UTC(year, 0, 1)) : null;
+      const obj = { date, raw: {}, num: {} };
+      for (const f of factors) {
+        const rawCell = (r[f] === undefined || r[f] === null) ? "" : String(r[f]);
+        obj.raw[f] = rawCell;
+        obj.num[f] = toNumber(rawCell);
+      }
+      return obj;
+    })
+    .sort((a,b) => (a.date && b.date) ? a.date - b.date : 0);
+
+  // aligned arrays
+  const dates = parsed.map(d => d.date);
+  const rawMatrix = {};
+  const numericMatrix = {};
+  for (const f of factors) {
+    rawMatrix[f] = parsed.map(d => d.raw[f]);
+    numericMatrix[f] = parsed.map(d => d.num[f]);
+  }
+
+  console.log(numericMatrix)
+
+  // Build start-at-zero arrays (aligned) 
+  const startAtZero = {};
+  for (const f of factors) {
+    const baseline = numericMatrix[f].find(v => typeof v === "number" && !isNaN(v));
+    startAtZero[f] = numericMatrix[f].map(v => {
+      if (!(v === 0 || v) && isNaN(v)) return NaN;
+      if (!isFinite(baseline)) return NaN;
+      return Math.log(v / baseline)
+    });
+  }
+
+  // Correlations on start-at-zero arrays
+  const corr = factors.map(f1 => factors.map(f2 => f1 === f2 ? 1 : pearson(startAtZero[f1], startAtZero[f2])));
+
+  // Find the permutation that maximizes pairwise correlation
+  const perms = permutations(factors);
+  let best = perms[0], bestScore = -Infinity;
+  for (const p of perms) {
+    let s = 0;
+    for (let i = 0; i < p.length - 1; i++) s += corr[factors.indexOf(p[i])][factors.indexOf(p[i+1])];
+    if (s > bestScore) { bestScore = s; best = p; }
+  }
+
+  // Prepare series: use start-at-zero for plotting, keep original raw/num for tooltip and missing detection
+  const series = best.map(key => {
+    const vals = [];
+    for (let i = 0; i < dates.length; i++) {
+      const date = dates[i];
+      const v = startAtZero[key][i];
+      const origRaw = rawMatrix[key][i];
+      const origNum = numericMatrix[key][i];
+      if (date instanceof Date && !isNaN(+date) && typeof v === "number" && !isNaN(v)) {
+        vals.push({ date, value: v, originalRaw: origRaw, originalNum: origNum, rowIndex: i });
+      }
+    }
+    return { key, label: labels[key] ?? key, values: vals };
+  }).filter(s => s.values.length);
+
+  console.log(series)
+
+  // Scales
+  const allDates = series.flatMap(s => s.values.map(d => d.date));
+  const x = d3.scaleUtc().domain(d3.extent(allDates)).range([0, width]);
+  const maxAbs = d3.max(series, s => d3.max(s.values, d => Math.abs(d.value))) || 1;
+  const y = d3.scaleLinear().domain([-maxAbs, maxAbs]).range([overlap * step, -overlap * step]);
+
+  // Build arrays of years present in the dataset (unique, sorted)
+  const uniqueYears = Array.from(new Set(dates.filter(d => d instanceof Date).map(d => d.getUTCFullYear())))
+    .sort((a,b) => a - b)
+    .map(yv => new Date(Date.UTC(yv, 0, 1)));
+
+  // Axis tick dates (controlled by tickEveryYears) — axis only
+  const domain0 = x.domain()[0], domain1 = x.domain()[1];
+  const tickInterval = d3.utcYear.every(Math.max(1, tickEveryYears));
+  const tickDates = tickInterval.range(d3.utcYear.floor(domain0), d3.utcYear.offset(domain1, 1))
+    .filter(d => d >= domain0 && d <= domain1);
+
+  // Area generator (no interpolation)
+  const area = d3.area()
+    .curve(d3.curveStep)
+    .defined(d => !isNaN(d.value))
+    .x(d => x(d.date))
+    .y0(() => y(0))
+    .y1(d => y(d.value));
+
+  // Color mapping
+  const colorForIndex = i => i < 0
+    ? d3.interpolateReds(0.25 + 0.75 * (Math.min(1, Math.abs(i)/overlap)))
+    : d3.interpolateBlues(0.25 + 0.75 * ((i+1)/(overlap+1)));
+
+  // Build SVG
+  const height = series.length * (step + 1) + margin.top + margin.bottom;
+  const container = d3.select("#chart");
+  const svg = container.append("svg")
+    .attr("viewBox", `0 0 ${width} ${height}`)
+    .style("font", "12px sans-serif");
+
+  // Groups and defs
+  const groups = svg.append("g")
+    .selectAll("g")
+    .data(series)
+    .join("g")
+      .attr("transform", (d,i) => `translate(0,${i*(step+1)+margin.top})`);
+
+  groups.append("clipPath")
+    .attr("id", (d,i) => `clip-${i}`)
+    .append("rect")
+      .attr("width", width)
+      .attr("height", step);
+
+  groups.append("defs").append("path")
+    .attr("id", (d,i) => `path-${i}`)
+    .attr("d", d => area(d.values));
+
+  // Add bands
+  groups.append("g")
+    .attr("clip-path", (d,i) => `url(#clip-${i})`)
+    .selectAll("use")
+    .data(() => Array.from({ length: overlap * 2 }, (_, i) => i))
+    .join("use")
+      .attr("fill", (d,i) => {
+        const index = i < overlap ? -i - 1 : i - overlap;
+        return colorForIndex(index);
+      });
+
+  // Fix hrefs and transforms per group
+  groups.each(function(d,i) {
+    const pathId = `#path-${i}`;
+    d3.select(this).selectAll("use")
+      .attr("href", pathId).attr("xlink:href", pathId)
+      .attr("transform", (_, j) => {
+        const index = j < overlap ? -j - 1 : j - overlap;
+        return (mirror && index < 0) ? `scale(1,-1) translate(0,${index * step})` : `translate(0,${(index + 1) * step})`;
+      });
+  });
+
+  // Draw missing-value grey boxes per series using rawMatrix to detect empty cells
+  groups.each(function(series, gi) {
+    const gnode = d3.select(this);
+    const key = series.key;
+    const missingRects = [];
+    for (let t = 0; t < uniqueYears.length; t++) {
+      const yearDate = uniqueYears[t];
+      const year = yearDate.getUTCFullYear();
+      const rowIndex = dates.findIndex(d => d && d.getUTCFullYear() === year);
+      const rawCell = (rowIndex === -1) ? "" : rawMatrix[key][rowIndex];
+      if (rawCell == null || String(rawCell).trim() === "") {
+        const cx = x(yearDate);
+        const left = t === 0 ? 0 : (x(uniqueYears[t-1]) + cx) / 2;
+        const right = t === uniqueYears.length - 1 ? width : (cx + x(uniqueYears[t+1])) / 2;
+        missingRects.push({ x: left, w: Math.max(1, right - left), cx, yearDate, rowIndex });
+      }
+    }
+    if (missingRects.length) {
+      gnode.append("g").selectAll("rect.missing")
+        .data(missingRects).join("rect")
+        .attr("class", "missing-box")
+        .attr("x", d => d.x)
+        .attr("y", 0)
+        .attr("width", d => d.w)
+        .attr("height", step)
+        .on("mouseenter", (ev, d) => {
+          const year = d.yearDate.getUTCFullYear();
+          tooltip.style("display", "block").html(`<strong>${series.label}</strong>: <em>missing</em><br/><small>${year}</small>`);
+          hoverLine.attr("x1", d.cx).attr("x2", d.cx).style("display", null);
+          svg.node().appendChild(hoverLine.node());
+        })
+        .on("mousemove", (ev, d) => {
+          positionTooltip(ev);
+          hoverLine.attr("x1", d.cx).attr("x2", d.cx);
+          svg.node().appendChild(hoverLine.node());
+        })
+        .on("mouseleave", () => {
+          tooltip.style("display", "none");
+          hoverLine.style("display", "none");
+        });
+    }
+  });
+
+  // Labels
+  groups.append("text")
+    .attr("class", "label")
+    .attr("x", 4)
+    .attr("y", step / 2)
+    .attr("dy", "0.35em")
+    .text(d => d.label);
+
+  // X axis (use tickDates so ticks are spaced by tickEveryYears but hover still works per-year)
+  const axis = d3.axisTop(x)
+    .tickValues(tickDates)
+    .tickFormat(d3.utcFormat("%Y"))
+    .tickSizeOuter(0);
+
+  svg.append("g")
+    .attr("transform", `translate(0,${margin.top})`)
+    .call(axis)
+    .call(g => g.selectAll(".tick text").classed("axis-tick", true))
+    .call(g => g.selectAll(".tick").filter(d => x(d) < margin.left || x(d) >= width - margin.right).remove())
+    .call(g => g.select(".domain").remove());
+
+  // Hover line appended last so it renders on top
+  const hoverLine = svg.append("line")
+    .attr("class", "hover-line")
+    .attr("y1", margin.top - 6)
+    .attr("y2", height - margin.bottom)
+    .style("display", "none");
+
+  // Tooltip helper
+  const tooltip = d3.select("#tooltip");
+  function positionTooltip(ev) {
+    const tt = document.getElementById("tooltip");
+    tt.style.display = "block";
+    const mouseX = ev.clientX, mouseY = ev.clientY;
+    let left = mouseX + 12, top = mouseY + 12;
+    const rect = tt.getBoundingClientRect();
+    if (left + rect.width + 8 > window.innerWidth) left = mouseX - rect.width - 12;
+    if (top + rect.height + 8 > window.innerHeight) top = mouseY - rect.height - 12;
+    tooltip.style("left", `${left}px`).style("top", `${top}px`);
+  }
+
+  // Hit areas for every year (uniqueYears) so hover aligns with each year
+  groups.each(function(series, gi) {
+    const gnode = d3.select(this);
+    const pointByYear = new Map(series.values.map(p => [p.date.getUTCFullYear(), p]));
+    const hitRects = uniqueYears.map((yearDate, t) => {
+      const left = t === 0 ? 0 : (x(uniqueYears[t-1]) + x(yearDate)) / 2;
+      const right = t === uniqueYears.length - 1 ? width : (x(yearDate) + x(uniqueYears[t+1])) / 2;
+      const cx = x(yearDate);
+      const year = yearDate.getUTCFullYear();
+      const point = pointByYear.get(year) || null;
+      return { left, w: Math.max(1, right - left), cx, yearDate, year, point };
+    });
+
+    gnode.append("g").selectAll("rect.hit")
+      .data(hitRects).join("rect")
+      .attr("class", "hit")
+      .attr("x", r => r.left).attr("y", 0).attr("width", r => r.w).attr("height", step)
+      .on("mouseenter", (ev, r) => {
+        const year = r.year;
+        if (r.point) {
+          const origNum = r.point.originalNum;
+          const origRaw = r.point.originalRaw;
+          const displayVal = (typeof origNum === "number" && !isNaN(origNum)) ? origNum : (origRaw && String(origRaw).trim() !== "" ? origRaw : "missing");
+          tooltip.style("display", "block").html(`<strong>${series.label}</strong>: ${displayVal}<br/><small>${year}</small>`);
+        } else {
+          const rowIndex = dates.findIndex(d => d && d.getUTCFullYear() === year);
+          const rawCell = (rowIndex === -1) ? "" : rawMatrix[series.key][rowIndex];
+          const isMissing = rawCell == null || String(rawCell).trim() === "";
+          tooltip.style("display", "block").html(`<strong>${series.label}</strong>: ${isMissing ? "<em>missing</em>" : rawCell}<br/><small>${year}</small>`);
+        }
+        hoverLine.attr("x1", r.cx).attr("x2", r.cx).style("display", null);
+        svg.node().appendChild(hoverLine.node());
+      })
+      .on("mousemove", (ev, r) => {
+        positionTooltip(ev);
+        hoverLine.attr("x1", r.cx).attr("x2", r.cx);
+        svg.node().appendChild(hoverLine.node());
+      })
+      .on("mouseleave", () => {
+        tooltip.style("display", "none");
+        hoverLine.style("display", "none");
+      });
+  });
+
+  // Legend below the horizon chart
+  // We compute band thresholds in log space, then convert to percent
+  // For symmetry, negative bands use the same absolute percent thresholds as positive bands
+
+  const fmt = d3.format(".1%"); // one decimal percent
+  const bandSize = maxAbs / overlap;
+
+  // Build ordered indices: negative (most negative first) then positive
+  const negIndices = Array.from({length: overlap}, (_, i) => -(overlap - i)); // e.g. -3,-2,-1
+  const posIndices = Array.from({length: overlap}, (_, i) => i);               // 0,1,2
+  const indices = negIndices.concat(posIndices);
+
+  const legendEntries = indices.map(index => {
+    if (index < 0) {
+      // negative band: index = -k where k in 1..overlap
+      const k = Math.abs(index);
+      const pLow = -Math.expm1(k * bandSize);           // more negative (lower)
+      const pHigh = -Math.expm1((k - 1) * bandSize);    // closer to zero (higher)
+      return {
+        index,
+        color: colorForIndex(index),
+        label: `${fmt(pLow)} → ${fmt(pHigh)}`,
+        lower: pLow,
+        upper: pHigh
+      };
+    } else {
+      // positive band: index = k where k in 0..overlap-1
+      const pLow = Math.expm1(index * bandSize);
+      const pHigh = Math.expm1((index + 1) * bandSize);
+      return {
+        index,
+        color: colorForIndex(index),
+        label: `${fmt(pLow)} → ${fmt(pHigh)}`,
+        lower: pLow,
+        upper: pHigh
+      };
+    }
+  });
+
+  // Render legend below the chart (HTML)
+  const legendEl = d3.select("#legend");
+  legendEl.html(""); // clear
+  legendEl.append("div").attr("class", "legend-title").style("font-weight", "600").text("Band ranges");
+
+  rows = legendEl.selectAll("div.legend-row")
+    .data(legendEntries)
+    .join("div")
+    .attr("class", "legend-row");
+
+  rows.append("div")
+    .attr("class", "legend-swatch")
+    .style("background-color", d => d.color);
+
+  rows.append("div")
+    .attr("class", "legend-label")
+    .text(d => d.label);
+
+}).catch(err => {
+  console.error("Failed to load CSV:", err);
+});
+</script>
+</body>
+</html>
