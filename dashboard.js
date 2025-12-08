@@ -829,7 +829,9 @@ function updateChartData() {
         for (let i = 1; i <= bottleneckColors.length; i++) {
             if (i === bottleneckColors.length || bottleneckColors[i] !== currentColor) {
                 const segmentData = new Array(data.years.length).fill(null);
-                for (let j = segmentStart; j < i; j++) {
+                // Use half-open interval [start, end) - inclusive start, exclusive end
+                const endIndex = i;
+                for (let j = segmentStart; j < endIndex && j < data.years.length; j++) {
                     segmentData[j] = 1.0;
                 }
                 
@@ -852,6 +854,7 @@ function updateChartData() {
                 
                 if (i < bottleneckColors.length) {
                     currentColor = bottleneckColors[i] || COMPONENT_COLORS.missing;
+                    // Next segment starts at current index (exclusive end becomes inclusive start)
                     segmentStart = i;
                 }
             }
@@ -865,11 +868,14 @@ function updateChartData() {
         {
             label: 'HDI',
             data: shdiData.map(v => v === null || v === undefined ? null : v),
-            borderColor: '#4a9eff',
-            backgroundColor: 'rgba(74, 158, 255, 0.1)',
+            borderColor: '#000000',
+            backgroundColor: 'rgba(0, 0, 0, 0.1)',
             tension: 0.4,
             order: 1,
-            spanGaps: false
+            spanGaps: false,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            borderDash: [5, 5]
         },
         {
             label: 'Health',
@@ -878,7 +884,9 @@ function updateChartData() {
             backgroundColor: COMPONENT_COLORS.health + '20',
             tension: 0.4,
             order: 1,
-            spanGaps: false
+            spanGaps: false,
+            pointRadius: 0,
+            pointHoverRadius: 0
         },
         {
             label: 'Education',
@@ -887,7 +895,9 @@ function updateChartData() {
             backgroundColor: COMPONENT_COLORS.education + '20',
             tension: 0.4,
             order: 1,
-            spanGaps: false
+            spanGaps: false,
+            pointRadius: 0,
+            pointHoverRadius: 0
         },
         {
             label: 'Income',
@@ -896,7 +906,9 @@ function updateChartData() {
             backgroundColor: COMPONENT_COLORS.income + '20',
             tension: 0.4,
             order: 1,
-            spanGaps: false
+            spanGaps: false,
+            pointRadius: 0,
+            pointHoverRadius: 0
         }
     ];
     
@@ -1009,7 +1021,9 @@ function updateChart() {
         for (let i = 1; i <= bottleneckColors.length; i++) {
             if (i === bottleneckColors.length || bottleneckColors[i] !== currentColor) {
                 const segmentData = new Array(data.years.length).fill(null);
-                for (let j = segmentStart; j < i; j++) {
+                // Use half-open interval [start, end) - inclusive start, exclusive end
+                const endIndex = i;
+                for (let j = segmentStart; j < endIndex && j < data.years.length; j++) {
                     segmentData[j] = 1.0;
                 }
                 
@@ -1032,6 +1046,7 @@ function updateChart() {
                 
                 if (i < bottleneckColors.length) {
                     currentColor = bottleneckColors[i] || COMPONENT_COLORS.missing;
+                    // Next segment starts at current index (exclusive end becomes inclusive start)
                     segmentStart = i;
                 }
             }
@@ -1053,11 +1068,13 @@ function updateChart() {
                     {
                         label: 'HDI',
                         data: shdiData.map(v => v === null || v === undefined ? null : v),
-                        borderColor: '#4a9eff',
-                        backgroundColor: 'rgba(74, 158, 255, 0.1)',
+                        borderColor: '#000000',
+                        backgroundColor: 'rgba(0, 0, 0, 0.1)',
                         tension: 0.4,
                         order: 1,
-                        spanGaps: false
+                        spanGaps: false,
+                        pointRadius: 0,
+                        pointHoverRadius: 0
                     },
                     {
                         label: 'Health',
@@ -1066,7 +1083,9 @@ function updateChart() {
                         backgroundColor: COMPONENT_COLORS.health + '20',
                         tension: 0.4,
                         order: 1,
-                        spanGaps: false
+                        spanGaps: false,
+                        pointRadius: 0,
+                        pointHoverRadius: 0
                     },
                     {
                         label: 'Education',
@@ -1075,7 +1094,9 @@ function updateChart() {
                         backgroundColor: COMPONENT_COLORS.education + '20',
                         tension: 0.4,
                         order: 1,
-                        spanGaps: false
+                        spanGaps: false,
+                        pointRadius: 0,
+                        pointHoverRadius: 0
                     },
                     {
                         label: 'Income',
@@ -1084,7 +1105,9 @@ function updateChart() {
                         backgroundColor: COMPONENT_COLORS.income + '20',
                         tension: 0.4,
                         order: 1,
-                        spanGaps: false
+                        spanGaps: false,
+                        pointRadius: 0,
+                        pointHoverRadius: 0
                     }
                 ]
             },
@@ -1181,10 +1204,9 @@ function updateHorizonChart() {
     }
     
     const data = timeSeries[selectedGdlcode];
-    const regionName = data.region;
     
-    // Filter CSV rows for selected region
-    const regionRows = rawCsvData.filter(r => r.region === regionName);
+    // Filter CSV rows by gdlcode (not region name, as region names may not be unique)
+    const regionRows = rawCsvData.filter(r => r.gdlcode === selectedGdlcode);
     
     if (regionRows.length === 0) {
         document.getElementById('horizon-chart-container').style.display = 'none';
@@ -1227,10 +1249,17 @@ function updateHorizonChart() {
     // Build start-at-zero arrays (aligned)
     const startAtZero = {};
     for (const f of horizonFactors) {
-        const baseline = numericMatrix[f].find(v => typeof v === "number" && !isNaN(v));
+        // Find first valid baseline value (must be > 0 for log calculation)
+        const baseline = numericMatrix[f].find(v => typeof v === "number" && !isNaN(v) && v > 0);
+        if (!baseline || !isFinite(baseline) || baseline <= 0) {
+            // If no valid baseline, set all to NaN
+            startAtZero[f] = numericMatrix[f].map(() => NaN);
+            continue;
+        }
         startAtZero[f] = numericMatrix[f].map(v => {
             if (!(v === 0 || v) && isNaN(v)) return NaN;
-            if (!isFinite(baseline)) return NaN;
+            if (typeof v !== "number" || isNaN(v) || v <= 0) return NaN;
+            if (!isFinite(baseline) || baseline <= 0) return NaN;
             return Math.log(v / baseline);
         });
     }
@@ -1252,19 +1281,39 @@ function updateHorizonChart() {
     }
     
     // Prepare series: use start-at-zero for plotting, keep original raw/num for tooltip
+    // Interpolate missing values to avoid white spaces
     const series = best.map(key => {
         const vals = [];
+        let lastValidValue = 0; // Default to zero (baseline) for missing values
+        
         for (let i = 0; i < dates.length; i++) {
             const date = dates[i];
             const v = startAtZero[key][i];
             const origRaw = rawMatrix[key][i];
             const origNum = numericMatrix[key][i];
-            if (date instanceof Date && !isNaN(+date) && typeof v === "number" && !isNaN(v)) {
-                vals.push({ date, value: v, originalRaw: origRaw, originalNum: origNum, rowIndex: i });
+            
+            if (date instanceof Date && !isNaN(+date)) {
+                let valueToUse;
+                if (typeof v === "number" && !isNaN(v)) {
+                    valueToUse = v;
+                    lastValidValue = v; // Update last valid value
+                } else {
+                    // Use last valid value to maintain continuity (or 0 if no previous value)
+                    valueToUse = lastValidValue;
+                }
+                
+                vals.push({ 
+                    date, 
+                    value: valueToUse, 
+                    originalRaw: origRaw, 
+                    originalNum: origNum, 
+                    rowIndex: i,
+                    isInterpolated: (typeof v !== "number" || isNaN(v))
+                });
             }
         }
         return { key, label: horizonLabels[key] ?? key, values: vals };
-    }).filter(s => s.values.length);
+    }).filter(s => s.values.length > 0);
     
     if (series.length === 0) {
         document.getElementById('horizon-chart-container').style.display = 'none';
@@ -1289,9 +1338,9 @@ function updateHorizonChart() {
         .filter(d => d >= domain0 && d <= domain1);
     
     // Area generator
+    // All values are now valid (interpolated), so no need for .defined()
     const area = d3.area()
         .curve(d3.curveStep)
-        .defined(d => !isNaN(d.value))
         .x(d => x(d.date))
         .y0(() => y(0))
         .y1(d => y(d.value));
