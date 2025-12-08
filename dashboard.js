@@ -794,6 +794,129 @@ function selectRegion(gdlcode) {
     updateChart();
 }
 
+// Function to update chart data (when chart already exists)
+function updateChartData() {
+    if (!selectedGdlcode || !timeSeries[selectedGdlcode] || !chart) {
+        return;
+    }
+    
+    const data = timeSeries[selectedGdlcode];
+    
+    if (!data || !data.years || data.years.length === 0) {
+        return;
+    }
+    
+    // Ensure all data arrays have the same length
+    const numYears = data.years.length;
+    const shdiData = (data.shdi || []).slice(0, numYears);
+    const healthData = (data.healthindex || []).slice(0, numYears);
+    const edData = (data.edindex || []).slice(0, numYears);
+    const incData = (data.incindex || []).slice(0, numYears);
+    
+    const bottleneckColors = data.years.map((year, idx) => {
+        const health = healthData[idx];
+        const education = edData[idx];
+        const income = incData[idx];
+        const bottleneck = getBottleneckComponent(health, education, income);
+        return bottleneck ? COMPONENT_COLORS[bottleneck] : COMPONENT_COLORS.missing;
+    });
+    
+    const backgroundDatasets = [];
+    if (bottleneckColors.length > 0) {
+        let currentColor = bottleneckColors[0] || COMPONENT_COLORS.missing;
+        let segmentStart = 0;
+        
+        for (let i = 1; i <= bottleneckColors.length; i++) {
+            if (i === bottleneckColors.length || bottleneckColors[i] !== currentColor) {
+                const segmentData = new Array(data.years.length).fill(null);
+                for (let j = segmentStart; j < i; j++) {
+                    segmentData[j] = 1.0;
+                }
+                
+                const hex = (currentColor || COMPONENT_COLORS.missing).replace('#', '');
+                const r = parseInt(hex.substring(0, 2), 16);
+                const g = parseInt(hex.substring(2, 4), 16);
+                const b = parseInt(hex.substring(4, 6), 16);
+                
+                backgroundDatasets.push({
+                    label: '',
+                    data: segmentData,
+                    backgroundColor: `rgba(${r}, ${g}, ${b}, 0.2)`,
+                    borderWidth: 0,
+                    pointRadius: 0,
+                    fill: 'origin',
+                    order: 0,
+                    showLine: false,
+                    tension: 0
+                });
+                
+                if (i < bottleneckColors.length) {
+                    currentColor = bottleneckColors[i] || COMPONENT_COLORS.missing;
+                    segmentStart = i;
+                }
+            }
+        }
+    }
+    
+    // Update chart data
+    chart.data.labels = data.years;
+    chart.data.datasets = [
+        ...backgroundDatasets,
+        {
+            label: 'HDI',
+            data: shdiData.map(v => v === null || v === undefined ? null : v),
+            borderColor: '#4a9eff',
+            backgroundColor: 'rgba(74, 158, 255, 0.1)',
+            tension: 0.4,
+            order: 1,
+            spanGaps: false
+        },
+        {
+            label: 'Health',
+            data: healthData.map(v => v === null || v === undefined ? null : v),
+            borderColor: COMPONENT_COLORS.health,
+            backgroundColor: COMPONENT_COLORS.health + '20',
+            tension: 0.4,
+            order: 1,
+            spanGaps: false
+        },
+        {
+            label: 'Education',
+            data: edData.map(v => v === null || v === undefined ? null : v),
+            borderColor: COMPONENT_COLORS.education,
+            backgroundColor: COMPONENT_COLORS.education + '20',
+            tension: 0.4,
+            order: 1,
+            spanGaps: false
+        },
+        {
+            label: 'Income',
+            data: incData.map(v => v === null || v === undefined ? null : v),
+            borderColor: COMPONENT_COLORS.income,
+            backgroundColor: COMPONENT_COLORS.income + '20',
+            tension: 0.4,
+            order: 1,
+            spanGaps: false
+        }
+    ];
+    
+    // Ensure container has proper dimensions before updating
+    const chartContainer = document.getElementById('chart-container');
+    if (chartContainer) {
+        chartContainer.style.display = 'block';
+        void chartContainer.offsetHeight; // Force reflow
+    }
+    
+    chart.update('none'); // Update without animation
+    
+    // Explicitly resize after update to ensure dimensions are correct
+    requestAnimationFrame(() => {
+        if (chart) {
+            chart.resize();
+        }
+    });
+}
+
 // Function to update chart
 function updateChart() {
     if (!selectedGdlcode || !timeSeries[selectedGdlcode]) {
@@ -810,151 +933,222 @@ function updateChart() {
     
     const data = timeSeries[selectedGdlcode];
     
-    document.getElementById('region-name').textContent = data.region;
-    document.getElementById('region-country').textContent = data.country;
-    document.getElementById('region-info').style.display = 'block';
-    document.getElementById('chart-container').style.display = 'block';
-    document.getElementById('no-selection').style.display = 'none';
-    
-    const ctx = document.getElementById('time-series-chart').getContext('2d');
-    
-    if (chart) {
-        chart.destroy();
+    if (!data || !data.years || data.years.length === 0) {
+        console.error('Invalid time series data');
+        return;
     }
     
+    document.getElementById('region-name').textContent = data.region || 'Unknown';
+    document.getElementById('region-country').textContent = data.country || 'Unknown';
+    document.getElementById('region-info').style.display = 'block';
+    document.getElementById('no-selection').style.display = 'none';
+    
+    const chartContainer = document.getElementById('chart-container');
+    if (!chartContainer) {
+        console.error('Chart container element not found');
+        return;
+    }
+    
+    // Show container first and force layout recalculation
+    chartContainer.style.display = 'block';
+    // Force reflow to ensure dimensions are calculated
+    void chartContainer.offsetHeight;
+    
+    const canvas = document.getElementById('time-series-chart');
+    if (!canvas) {
+        console.error('Chart canvas element not found');
+        return;
+    }
+    
+    // Ensure container is visible and has proper dimensions before chart creation
+    chartContainer.style.display = 'block';
+    void chartContainer.offsetHeight; // Force reflow
+    
+    // If chart exists, update it instead of destroying/recreating (preserves dimensions)
+    if (chart) {
+        // Update existing chart data
+        updateChartData();
+        // Update horizon chart
+        updateHorizonChart();
+        return;
+    }
+    
+    // Clear any inline styles that might interfere with canvas sizing
+    canvas.style.width = '';
+    canvas.style.height = '';
+    // Clear canvas width/height attributes to let Chart.js handle sizing
+    canvas.removeAttribute('width');
+    canvas.removeAttribute('height');
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        console.error('Could not get 2D context from canvas');
+        return;
+    }
+    
+    // Ensure all data arrays have the same length
+    const numYears = data.years.length;
+    const shdiData = (data.shdi || []).slice(0, numYears);
+    const healthData = (data.healthindex || []).slice(0, numYears);
+    const edData = (data.edindex || []).slice(0, numYears);
+    const incData = (data.incindex || []).slice(0, numYears);
+    
     const bottleneckColors = data.years.map((year, idx) => {
-        const health = data.healthindex[idx];
-        const education = data.edindex[idx];
-        const income = data.incindex[idx];
+        const health = healthData[idx];
+        const education = edData[idx];
+        const income = incData[idx];
         const bottleneck = getBottleneckComponent(health, education, income);
         return bottleneck ? COMPONENT_COLORS[bottleneck] : COMPONENT_COLORS.missing;
     });
     
     const backgroundDatasets = [];
-    let currentColor = bottleneckColors[0];
-    let segmentStart = 0;
-    
-    for (let i = 1; i <= bottleneckColors.length; i++) {
-        if (i === bottleneckColors.length || bottleneckColors[i] !== currentColor) {
-            const segmentData = new Array(data.years.length).fill(null);
-            for (let j = segmentStart; j < i; j++) {
-                segmentData[j] = 1.0;
-            }
-            
-            const hex = currentColor.replace('#', '');
-            const r = parseInt(hex.substring(0, 2), 16);
-            const g = parseInt(hex.substring(2, 4), 16);
-            const b = parseInt(hex.substring(4, 6), 16);
-            
-            backgroundDatasets.push({
-                label: '',
-                data: segmentData,
-                backgroundColor: `rgba(${r}, ${g}, ${b}, 0.2)`,
-                borderWidth: 0,
-                pointRadius: 0,
-                fill: 'origin',
-                order: 0,
-                showLine: false,
-                tension: 0
-            });
-            
-            if (i < bottleneckColors.length) {
-                currentColor = bottleneckColors[i];
-                segmentStart = i;
+    if (bottleneckColors.length > 0) {
+        let currentColor = bottleneckColors[0] || COMPONENT_COLORS.missing;
+        let segmentStart = 0;
+        
+        for (let i = 1; i <= bottleneckColors.length; i++) {
+            if (i === bottleneckColors.length || bottleneckColors[i] !== currentColor) {
+                const segmentData = new Array(data.years.length).fill(null);
+                for (let j = segmentStart; j < i; j++) {
+                    segmentData[j] = 1.0;
+                }
+                
+                const hex = (currentColor || COMPONENT_COLORS.missing).replace('#', '');
+                const r = parseInt(hex.substring(0, 2), 16);
+                const g = parseInt(hex.substring(2, 4), 16);
+                const b = parseInt(hex.substring(4, 6), 16);
+                
+                backgroundDatasets.push({
+                    label: '',
+                    data: segmentData,
+                    backgroundColor: `rgba(${r}, ${g}, ${b}, 0.2)`,
+                    borderWidth: 0,
+                    pointRadius: 0,
+                    fill: 'origin',
+                    order: 0,
+                    showLine: false,
+                    tension: 0
+                });
+                
+                if (i < bottleneckColors.length) {
+                    currentColor = bottleneckColors[i] || COMPONENT_COLORS.missing;
+                    segmentStart = i;
+                }
             }
         }
     }
     
-    chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: data.years,
-            datasets: [
-                ...backgroundDatasets,
-                {
-                    label: 'HDI',
-                    data: data.shdi,
-                    borderColor: '#4a9eff',
-                    backgroundColor: 'rgba(74, 158, 255, 0.1)',
-                    tension: 0.4,
-                    order: 1
-                },
-                {
-                    label: 'Health',
-                    data: data.healthindex,
-                    borderColor: COMPONENT_COLORS.health,
-                    backgroundColor: COMPONENT_COLORS.health + '20',
-                    tension: 0.4,
-                    order: 1
-                },
-                {
-                    label: 'Education',
-                    data: data.edindex,
-                    borderColor: COMPONENT_COLORS.education,
-                    backgroundColor: COMPONENT_COLORS.education + '20',
-                    tension: 0.4,
-                    order: 1
-                },
-                {
-                    label: 'Income',
-                    data: data.incindex,
-                    borderColor: COMPONENT_COLORS.income,
-                    backgroundColor: COMPONENT_COLORS.income + '20',
-                    tension: 0.4,
-                    order: 1
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                title: {
-                    display: true,
-                    text: 'HDI Components Over Time',
-                    color: '#333'
-                },
-                legend: {
-                    display: true,
-                    position: 'top',
-                    labels: {
-                        color: '#333',
-                        filter: (item) => item.text !== ''
+    try {
+        if (typeof Chart === 'undefined') {
+            console.error('Chart.js is not loaded');
+            return;
+        }
+        
+        chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.years,
+                datasets: [
+                    ...backgroundDatasets,
+                    {
+                        label: 'HDI',
+                        data: shdiData.map(v => v === null || v === undefined ? null : v),
+                        borderColor: '#4a9eff',
+                        backgroundColor: 'rgba(74, 158, 255, 0.1)',
+                        tension: 0.4,
+                        order: 1,
+                        spanGaps: false
+                    },
+                    {
+                        label: 'Health',
+                        data: healthData.map(v => v === null || v === undefined ? null : v),
+                        borderColor: COMPONENT_COLORS.health,
+                        backgroundColor: COMPONENT_COLORS.health + '20',
+                        tension: 0.4,
+                        order: 1,
+                        spanGaps: false
+                    },
+                    {
+                        label: 'Education',
+                        data: edData.map(v => v === null || v === undefined ? null : v),
+                        borderColor: COMPONENT_COLORS.education,
+                        backgroundColor: COMPONENT_COLORS.education + '20',
+                        tension: 0.4,
+                        order: 1,
+                        spanGaps: false
+                    },
+                    {
+                        label: 'Income',
+                        data: incData.map(v => v === null || v === undefined ? null : v),
+                        borderColor: COMPONENT_COLORS.income,
+                        backgroundColor: COMPONENT_COLORS.income + '20',
+                        tension: 0.4,
+                        order: 1,
+                        spanGaps: false
                     }
-                }
+                ]
             },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    max: 1,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
                     title: {
                         display: true,
-                        text: 'Index Value',
+                        text: 'HDI Components Over Time',
                         color: '#333'
                     },
-                    ticks: {
-                        color: '#666'
-                    },
-                    grid: {
-                        color: '#e0e0e0'
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: '#333',
+                            filter: (item) => item.text !== ''
+                        }
                     }
                 },
-                x: {
-                    title: {
-                        display: true,
-                        text: 'Year',
-                        color: '#333'
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 1,
+                        title: {
+                            display: true,
+                            text: 'Index Value',
+                            color: '#333'
+                        },
+                        ticks: {
+                            color: '#666'
+                        },
+                        grid: {
+                            color: '#e0e0e0'
+                        }
                     },
-                    ticks: {
-                        color: '#666'
-                    },
-                    grid: {
-                        color: '#e0e0e0'
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Year',
+                            color: '#333'
+                        },
+                        ticks: {
+                            color: '#666'
+                        },
+                        grid: {
+                            color: '#e0e0e0'
+                        }
                     }
                 }
             }
-        }
-    });
+        });
+        
+        // Ensure chart resizes properly after creation
+        // Use requestAnimationFrame to ensure DOM has updated
+        requestAnimationFrame(() => {
+            if (chart) {
+                chart.resize();
+            }
+        });
+    } catch (error) {
+        console.error('Error creating chart:', error);
+    }
     
     // Update horizon chart
     updateHorizonChart();
