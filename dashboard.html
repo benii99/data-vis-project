@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subnational HDI Explorer</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="dashboard.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="sidebar">
+            <h3>Visualizations</h3>
+            <button class="viz-button active" data-viz="components" id="viz-components">4-Map Components</button>
+            <div id="desc-components" class="viz-description">
+                Shows the overall HDI (top map) and the three component indices: Health, Education, and Income (bottom maps). Each map uses a color gradient to represent index values.
+            </div>
+            <button class="viz-button" data-viz="difference" id="viz-difference">4-Map Difference</button>
+            <div id="desc-difference" class="viz-description hidden">
+                Shows the difference between HDI and component values. The top map displays HDI minus the lowest component (bottleneck), colored by the bottleneck component. Bottom maps show HDI minus each specific component, highlighting how much each component lags behind overall development.
+            </div>
+            <button class="viz-button" data-viz="bottleneck" id="viz-bottleneck">Bottleneck View</button>
+            <div id="desc-bottleneck" class="viz-description hidden">
+                Displays which component (Health, Education, or Income) is the bottleneck for each region - the component with the lowest value that limits overall HDI development. Regions are colored by their bottleneck component.
+            </div>
+        </div>
+        
+        <div class="left-panel">
+            <div class="year-control">
+                <label for="year-slider">Year: <span id="year-display">Loading...</span></label>
+                <input type="range" id="year-slider" min="1990" max="2022" value="2022" step="1" disabled>
+                <button id="scale-toggle" class="scale-toggle active" disabled>Scale: Relative</button>
+            </div>
+            
+            <div class="map-container">
+                <div id="loading" class="loading">Loading data...</div>
+                
+                <!-- 4-Map Components View -->
+                <div id="viz-components-container" class="viz-container">
+                    <div id="map-top" class="map-top">
+                        <div class="map-label">HDI (Overall)</div>
+                        <div id="legend-top" class="map-legend"></div>
+                    </div>
+                    <div class="maps-bottom">
+                        <div id="map-bottom-1" class="map-bottom">
+                            <div class="map-label">Health Index</div>
+                            <div id="legend-bottom-1" class="map-legend"></div>
+                        </div>
+                        <div id="map-bottom-2" class="map-bottom">
+                            <div class="map-label">Education Index</div>
+                            <div id="legend-bottom-2" class="map-legend"></div>
+                        </div>
+                        <div id="map-bottom-3" class="map-bottom">
+                            <div class="map-label">Income Index</div>
+                            <div id="legend-bottom-3" class="map-legend"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Difference View -->
+                <div id="viz-difference-container" class="viz-container">
+                    <div id="map-diff-top" class="map-top">
+                        <div class="map-label">HDI - Lowest Component</div>
+                        <div id="legend-diff-top" class="map-legend"></div>
+                    </div>
+                    <div class="maps-bottom">
+                        <div id="map-diff-bottom-1" class="map-bottom">
+                            <div class="map-label">HDI - Health</div>
+                            <div id="legend-diff-bottom-1" class="map-legend"></div>
+                        </div>
+                        <div id="map-diff-bottom-2" class="map-bottom">
+                            <div class="map-label">HDI - Education</div>
+                            <div id="legend-diff-bottom-2" class="map-legend"></div>
+                        </div>
+                        <div id="map-diff-bottom-3" class="map-bottom">
+                            <div class="map-label">HDI - Income</div>
+                            <div id="legend-diff-bottom-3" class="map-legend"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Bottleneck View -->
+                <div id="viz-bottleneck-container" class="viz-container">
+                    <div id="map-bottleneck" class="map-full">
+                        <div class="map-label">Bottleneck Component</div>
+                        <div id="legend-bottleneck" class="bottleneck-legend"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="right-panel">
+            <div id="region-info" class="region-info" style="display: none;">
+                <h3 id="region-name"></h3>
+                <p id="region-country"></p>
+            </div>
+            
+            <div id="no-selection" class="no-selection">
+                <p>Click on a region on the map to view its HDI time series</p>
+            </div>
+            
+            <div id="chart-container" class="chart-container" style="display: none;">
+                <canvas id="time-series-chart"></canvas>
+            </div>
+            
+            <div id="horizon-chart-container" class="horizon-chart-container" style="display: none;">
+                <h4 style="margin-bottom: 10px; color: #333;">Horizon Chart</h4>
+                <div id="horizon-chart-wrap" class="horizon-chart-wrap">
+                    <div id="horizon-chart" class="horizon-chart"></div>
+                    <div id="horizon-legend" class="horizon-legend" aria-hidden="false"></div>
+                </div>
+                <div id="horizon-tooltip" class="horizon-tooltip"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>

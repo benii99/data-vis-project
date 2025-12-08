@@ -1,0 +1,447 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background-color: #f5f5f5;
+    color: #333;
+}
+
+.dashboard-container {
+    display: flex;
+    height: 100vh;
+    gap: 10px;
+    padding: 10px;
+}
+
+.sidebar {
+    width: 200px;
+    background-color: white;
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.sidebar h3 {
+    margin: 0 0 15px 0;
+    font-size: 16px;
+    color: #333;
+    border-bottom: 2px solid #0066cc;
+    padding-bottom: 8px;
+}
+
+.viz-button {
+    width: 100%;
+    padding: 12px;
+    background-color: #f5f5f5;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    transition: all 0.2s;
+    text-align: left;
+}
+
+.viz-button:hover {
+    background-color: #e8e8e8;
+    border-color: #0066cc;
+}
+
+.viz-button.active {
+    background-color: #0066cc;
+    color: white;
+    border-color: #0066cc;
+}
+
+.viz-description {
+    font-size: 11px;
+    color: #666;
+    margin-top: 5px;
+    line-height: 1.4;
+    padding: 8px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+    border-left: 3px solid #0066cc;
+}
+
+.viz-description.hidden {
+    display: none;
+}
+
+.left-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.right-panel {
+    width: 400px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background-color: white;
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    overflow-y: auto;
+}
+
+.year-control {
+    background-color: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.year-control label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: 600;
+    color: #333;
+}
+
+.year-control input[type="range"] {
+    width: 100%;
+}
+
+.year-display {
+    text-align: center;
+    font-size: 18px;
+    font-weight: bold;
+    color: #0066cc;
+    margin-top: 5px;
+}
+
+.map-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    overflow: hidden;
+    min-height: 0;
+}
+
+.map-top {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    border-bottom: 2px solid #ddd;
+    background-color: #fafafa;
+    position: relative;
+}
+
+.maps-bottom {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    gap: 10px;
+    padding: 10px;
+}
+
+.map-bottom {
+    flex: 1;
+    min-height: 0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    overflow: hidden;
+    background-color: #fafafa;
+    position: relative;
+}
+
+.map-full {
+    width: 100%;
+    height: 100%;
+    flex: 1;
+    min-height: 0;
+    background-color: #fafafa;
+    position: relative;
+}
+
+.map-top .leaflet-container,
+.map-bottom .leaflet-container,
+.map-full .leaflet-container {
+    height: 100%;
+    width: 100%;
+    background-color: #fafafa;
+}
+
+.viz-container {
+    display: none;
+}
+
+.viz-container.active {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.bottleneck-legend {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background-color: rgba(255, 255, 255, 0.95);
+    padding: 10px;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    z-index: 1000;
+    font-size: 11px;
+    border: 1px solid #ddd;
+}
+
+.bottleneck-legend-title {
+    font-weight: 600;
+    margin-bottom: 8px;
+    text-align: center;
+}
+
+.bottleneck-legend-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.bottleneck-legend-color {
+    width: 20px;
+    height: 15px;
+    margin-right: 8px;
+    border: 1px solid #333;
+    border-radius: 2px;
+}
+
+.map-label {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background-color: rgba(255, 255, 255, 0.95);
+    color: #333;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 12px;
+    z-index: 1000;
+    pointer-events: none;
+    border: 1px solid #ddd;
+}
+
+.region-info {
+    margin-bottom: 20px;
+}
+
+.region-info h3 {
+    color: #333;
+    margin-bottom: 5px;
+}
+
+.region-info p {
+    color: #666;
+    font-size: 14px;
+}
+
+.chart-container {
+    position: relative;
+    height: 300px;
+    margin-bottom: 20px;
+}
+
+.no-selection {
+    text-align: center;
+    color: #999;
+    padding: 40px 20px;
+}
+
+.map-legend {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background-color: rgba(255, 255, 255, 0.95);
+    padding: 8px;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    z-index: 1000;
+    font-size: 10px;
+    min-width: 120px;
+    border: 1px solid #ddd;
+}
+
+.legend-title {
+    font-weight: 600;
+    margin-bottom: 5px;
+    font-size: 11px;
+    text-align: center;
+}
+
+.legend-gradient {
+    width: 100%;
+    height: 150px;
+    border: 1px solid #ccc;
+    border-radius: 2px;
+    margin-bottom: 5px;
+    position: relative;
+}
+
+.legend-gradient-container {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+}
+
+.legend-labels {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    font-size: 9px;
+    color: #666;
+    height: 150px;
+    position: absolute;
+    left: -40px;
+    top: 0;
+    width: 35px;
+}
+
+.legend-label-top {
+    margin-top: 0;
+}
+
+.legend-label-bottom {
+    margin-top: auto;
+}
+
+.scale-toggle {
+    margin-top: 10px;
+    padding: 8px 12px;
+    background-color: #0066cc;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: background-color 0.2s;
+}
+
+.scale-toggle.active {
+    background-color: #004080;
+}
+
+.loading {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+}
+
+/* Horizon Chart Styles */
+.horizon-chart-container {
+    margin-top: 20px;
+    padding: 10px;
+    background-color: #fafafa;
+    border-radius: 4px;
+}
+
+.horizon-chart-wrap {
+    position: relative;
+    max-width: 100%;
+}
+
+.horizon-chart {
+    background: white;
+    border-radius: 6px;
+    padding: 6px;
+}
+
+.horizon-chart svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.horizon-label {
+    font: 14px sans-serif;
+    fill: #111;
+}
+
+.horizon-axis-tick {
+    font-size: 14px;
+    fill: #111;
+}
+
+.horizon-tooltip {
+    position: absolute;
+    pointer-events: none;
+    display: none;
+    background: #fff;
+    border: 1px solid #999;
+    padding: 6px 8px;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.12);
+    font: 13px sans-serif;
+    color: #111;
+    white-space: nowrap;
+    z-index: 10;
+}
+
+.horizon-hover-line {
+    stroke: #333;
+    stroke-width: 1.5;
+    stroke-dasharray: 3 3;
+    pointer-events: none;
+}
+
+.horizon-missing-box {
+    fill: #e6e6e6;
+    opacity: 0.95;
+}
+
+.horizon-hit {
+    fill: transparent;
+    cursor: pointer;
+}
+
+.horizon-legend {
+    margin-top: 10px;
+    display: block;
+    width: 100%;
+    font: 13px sans-serif;
+    color: #111;
+}
+
+.horizon-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+}
+
+.horizon-legend-swatch {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #999;
+    border-radius: 3px;
+    flex: 0 0 18px;
+}
+
+.horizon-legend-label {
+    font-size: 13px;
+}
+
+.horizon-legend-caption {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #444;
+}
+
+.horizon-legend-title {
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+

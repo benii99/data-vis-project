@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+
+<head>
+  <meta charset="utf-8">
+  <title>D3 shdi synchronized</title>
+  <style>
+    body { font-family: sans-serif; }
+    svg { border: 1px solid #ccc; }
+  </style>  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/5.1.5/turf.min.js"></script>
+</head>
+
+<body>
+  <h2>D3 shdi synchronized</h2>
+  <div id="maps" style="display:grid; gap:20px;"></div>
+</body>
+
+<script type="module">
+    import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+
+    const width = 500, height = 300;
+
+    // Create two SVGs side by side
+    const svg1 = d3.select("#maps").append("svg")
+      .attr("width", width).attr("height", height);
+    const svg2 = d3.select("#maps").append("svg")
+      .attr("width", width).attr("height", height);
+
+    // Group containers for zoom/pan
+    const g1 = svg1.append("g");
+    const g2 = svg2.append("g");
+
+    // Projection and path generator
+    const projection = d3.geoNaturalEarth1()//.translate([width/2, height/2]).scale(300);
+
+    // Color scales
+    const colorNormal = d3.scaleSequential(d3.interpolatePurples);
+
+    Promise.all([
+      d3.json("http://127.0.0.1:8080/data/geojson/gdl_regons_simplified_5km.geojson"),
+      d3.csv("http://127.0.0.1:8080/data//processed/subnational_hdi_processed.csv")
+    ]).then(([geojson, shdi]) => {
+
+      // geojson d3 solution from https://stackoverflow.com/a/49311635
+      var fixed = geojson.features.map(function(feature) {
+        return turf.rewind(feature,{reverse:true});
+      })
+      // ---
+
+      var gdlShdiMap = new Map(shdi.map(d => [d.gdlcode, d.shdi]))
+      var gdlShdiBottleneckMap = new Map(shdi.map(d => [d.gdlcode, d.bottleneck_value]))
+
+      var projection = d3.geoMercator();
+      var path = d3.geoPath().projection(projection);
+      
+      projection.fitSize([width,height],{"type": "FeatureCollection","features":fixed})
+
+      colorNormal.domain([0, 1]);
+
+      // Draw counties in both maps
+      g1.selectAll("path")
+        .data(fixed)
+        .join("path")
+        .attr("d", path)
+        .attr("fill", d => {
+          const v = gdlShdiMap.get(d.properties.gdlcode);
+          return v ? colorNormal(v) : "#ccc";
+        })
+
+      g2.selectAll("path")
+        .data(fixed)
+        .join("path")
+        .attr("d", path)
+        .attr("fill", d => {
+          const v = gdlShdiBottleneckMap.get(d.properties.gdlcode);
+          return v ? colorNormal(v) : "#ccc";
+        })
+
+      // Define zoom behavior
+      const zoom = d3.zoom()
+        .scaleExtent([1, 8])
+        .on("zoom", (event) => {
+          g1.attr("transform", event.transform);
+          g2.attr("transform", event.transform);
+        });
+
+      // Attach zoom to both SVGs
+      svg1.call(zoom);
+      svg2.call(zoom);
+
+      console.log("showing")
+    });
+
+</script>
