@@ -1866,27 +1866,21 @@ function initMaps() {
             bottleneckMap = initD3Map('map-bottleneck', null, null, null);
             
             // Calculate common projection for all maps to ensure synchronization
-            // Use the largest map dimensions as reference
-            if (geojsonData && maps.length > 0) {
-                // Find the largest map dimensions
-                let maxWidth = 0;
-                let maxHeight = 0;
-                maps.forEach(map => {
-                    if (map && map.initialized) {
-                        maxWidth = Math.max(maxWidth, map.width);
-                        maxHeight = Math.max(maxHeight, map.height);
-                    }
-                });
+            // Use the top map (first map) as reference center point
+            if (geojsonData && maps.length > 0 && maps[0] && maps[0].initialized) {
+                const topMap = maps[0];
+                const refWidth = topMap.width;
+                const refHeight = topMap.height;
                 
-                if (maxWidth > 0 && maxHeight > 0) {
-                    // Create a common projection based on reference dimensions
+                if (refWidth > 0 && refHeight > 0) {
+                    // Create a common projection based on top map dimensions
                     const refProjection = d3.geoMercator();
-                    refProjection.fitSize([maxWidth, maxHeight], geojsonData);
+                    refProjection.fitSize([refWidth, refHeight], geojsonData);
                     
                     // Store common projection parameters
                     commonProjection = refProjection;
-                    referenceWidth = maxWidth;
-                    referenceHeight = maxHeight;
+                    referenceWidth = refWidth;
+                    referenceHeight = refHeight;
                     
                     // Apply common projection to all maps
             maps.forEach(map => {
