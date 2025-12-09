@@ -1,6 +1,6 @@
 /* ==================== CONFIGURATION ==================== */
 const geojsonUrl = "http://127.0.0.1:8080/data/geojson/gdl_regons_simplified_5km.geojson";
-const csvUrl = "http://127.0.0.1:8080/data/processed/subnational_hdi_processed.csv";
+const csvUrl = "http://127.0.0.1:8080/data/processed/subnational_hdi_with_deviation.csv";
 
 /* ==================== UTILITY FUNCTIONS ==================== */
 
@@ -68,12 +68,9 @@ let referenceHeight = 0;
 
 // Shared zoom behaviors for synchronization
 let sharedZoomMaps = null;
-let sharedZoomDiffMaps = null;
 
 // Store all map instances (D3-based)
 const maps = []; // Array of D3Map instances
-const diffMaps = [];
-let bottleneckMap = null;
 
 /* ==================== D3MAP CLASS ==================== */
 
@@ -213,11 +210,17 @@ class D3Map {
             .attr('fill', d => {
                 const gdlcode = d.properties.gdlcode;
                 const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                
+                // Top map (shdi) shows deviation from country average
+                if (this.mapType === 'shdi') {
+                    const deviation = yearData ? yearData.hdi_deviation : null;
+                    return getColorForDeviation(deviation);
+                }
+                
+                // Other maps use standard coloring
                 let value = null;
                 if (yearData) {
-                    if (this.mapType === 'shdi') {
-                        value = yearData.shdi;
-                    } else if (this.mapType === 'healthindex') {
+                    if (this.mapType === 'healthindex') {
                         value = yearData.healthindex;
                     } else if (this.mapType === 'edindex') {
                         value = yearData.edindex;
@@ -240,11 +243,17 @@ class D3Map {
             .attr('fill-opacity', d => {
                 const gdlcode = d.properties.gdlcode;
                 const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                
+                // Top map uses deviation
+                if (this.mapType === 'shdi') {
+                    const deviation = yearData ? yearData.hdi_deviation : null;
+                    return deviation !== null ? 0.7 : 0.3;
+                }
+                
+                // Other maps use standard values
                 let value = null;
                 if (yearData) {
-                    if (this.mapType === 'shdi') {
-                        value = yearData.shdi;
-                    } else if (this.mapType === 'healthindex') {
+                    if (this.mapType === 'healthindex') {
                         value = yearData.healthindex;
                     } else if (this.mapType === 'edindex') {
                         value = yearData.edindex;
@@ -258,29 +267,43 @@ class D3Map {
             .on('mouseover', (event, d) => {
                 const gdlcode = d.properties.gdlcode;
                 const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
-                
-                let value = null;
-                let label = this.mapType.toUpperCase();
-                if (yearData) {
-                    if (this.mapType === 'shdi') {
-                        value = yearData.shdi;
-                        label = 'HDI';
-                    } else if (this.mapType === 'healthindex') {
-                        value = yearData.healthindex;
-                        label = 'Health';
-                    } else if (this.mapType === 'edindex') {
-                        value = yearData.edindex;
-                        label = 'Education';
-                    } else if (this.mapType === 'incindex') {
-                        value = yearData.incindex;
-                        label = 'Income';
-                    }
-                }
-                
                 const regionName = yearData ? yearData.region : gdlcode;
-                const tooltipText = value !== null 
-                    ? `${regionName}<br>${label}: ${value.toFixed(3)}`
-                    : `${regionName}<br>No data`;
+                
+                let tooltipText = '';
+                
+                // Top map shows deviation info
+                if (this.mapType === 'shdi') {
+                    const deviation = yearData ? yearData.hdi_deviation : null;
+                    const hdi = yearData ? yearData.shdi : null;
+                    const countryAvg = yearData ? yearData.country_avg_shdi : null;
+                    
+                    if (deviation !== null && hdi !== null) {
+                        const sign = deviation >= 0 ? '+' : '';
+                        const avgText = countryAvg !== null ? countryAvg.toFixed(3) : 'N/A';
+                        tooltipText = `${regionName}<br>HDI: ${hdi.toFixed(3)}<br>Country Avg: ${avgText}<br>Deviation: ${sign}${deviation.toFixed(3)}`;
+                    } else {
+                        tooltipText = `${regionName}<br>No data`;
+                    }
+                } else {
+                    // Standard tooltip for other maps
+                    let value = null;
+                    let label = this.mapType.toUpperCase();
+                    if (yearData) {
+                        if (this.mapType === 'healthindex') {
+                            value = yearData.healthindex;
+                            label = 'Health';
+                        } else if (this.mapType === 'edindex') {
+                            value = yearData.edindex;
+                            label = 'Education';
+                        } else if (this.mapType === 'incindex') {
+                            value = yearData.incindex;
+                            label = 'Income';
+                        }
+                    }
+                    tooltipText = value !== null 
+                        ? `${regionName}<br>${label}: ${value.toFixed(3)}`
+                        : `${regionName}<br>No data`;
+                }
                 
                 this.tooltip
                     .html(tooltipText)
@@ -375,14 +398,6 @@ const mapTypes = [
     {id: 'map-bottom-3', type: 'incindex', legendId: 'legend-bottom-3', title: 'Income'}
 ];
 
-// Difference map types and their legend IDs
-const diffMapTypes = [
-    {id: 'map-diff-top', type: 'diff-bottleneck', legendId: 'legend-diff-top', title: 'HDI - Lowest'},
-    {id: 'map-diff-bottom-1', type: 'diff-health', legendId: 'legend-diff-bottom-1', title: 'HDI - Health'},
-    {id: 'map-diff-bottom-2', type: 'diff-education', legendId: 'legend-diff-bottom-2', title: 'HDI - Education'},
-    {id: 'map-diff-bottom-3', type: 'diff-income', legendId: 'legend-diff-bottom-3', title: 'HDI - Income'}
-];
-
 /* ==================== GEOJSON PROCESSING ==================== */
 
 // Simple function to rewind GeoJSON features (fixes polygon winding order)
@@ -442,7 +457,9 @@ Promise.all([
         edindex: safeValue(row.edindex),
         incindex: safeValue(row.incindex),
         region: row.region || '',
-        country: row.country || ''
+        country: row.country || '',
+        country_avg_shdi: safeValue(row.country_avg_shdi),
+        hdi_deviation: safeValue(row.hdi_deviation)
     }));
     
     // Get available years
@@ -461,7 +478,9 @@ Promise.all([
             edindex: row.edindex,
             incindex: row.incindex,
             region: row.region,
-            country: row.country
+            country: row.country,
+            country_avg_shdi: row.country_avg_shdi,
+            hdi_deviation: row.hdi_deviation
         };
     });
     
@@ -517,6 +536,49 @@ function getMapCenter() {
 }
 
 // ==================== COLOR AND STYLING FUNCTIONS ====================
+
+// Get deviation value range for normalization (using preprocessed data)
+function getDeviationValueRange() {
+    const deviations = [];
+    Object.keys(dataLookup).forEach(gdlcode => {
+        const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+        if (yearData && yearData.hdi_deviation !== null && !isNaN(yearData.hdi_deviation)) {
+            deviations.push(Math.abs(yearData.hdi_deviation));
+        }
+    });
+    
+    if (deviations.length === 0) {
+        return {min: 0, max: 0.1};
+    }
+    
+    return {
+        min: 0,
+        max: Math.max(...deviations)
+    };
+}
+
+// Get color for HDI deviation (green for positive/above avg, red for negative/below avg)
+function getColorForDeviation(deviation) {
+    if (deviation === null || deviation === undefined || isNaN(deviation)) {
+        return COMPONENT_COLORS.missing;
+    }
+    
+    const range = getDeviationValueRange();
+    if (range.max === 0) {
+        return '#ffffff'; // Neutral color if no variation
+    }
+    
+    // Normalize absolute deviation to 0-1 range
+    const normalized = Math.min(1, Math.abs(deviation) / range.max);
+    
+    if (deviation > 0) {
+        // Positive deviation (above country avg): green
+        return interpolateColor('#ffffff', '#00cc00', normalized);
+    } else {
+        // Negative deviation (below country avg): red
+        return interpolateColor('#ffffff', '#cc0000', normalized);
+    }
+}
 
 // Helper function to interpolate between two colors
 function interpolateColor(color1, color2, factor) {
@@ -611,7 +673,8 @@ function getColorForValue(value, type) {
 // Create gradient CSS for legend
 function createGradientCSS(mapType) {
     if (mapType === 'shdi') {
-        return 'linear-gradient(to top, #ff0000, #00ff00)';
+        // Deviation: red (below avg) -> white (avg) -> green (above avg)
+        return 'linear-gradient(to top, #cc0000, #ffffff, #00cc00)';
     } else if (mapType === 'healthindex') {
         return `linear-gradient(to top, #ffffff, ${COMPONENT_COLORS.health})`;
     } else if (mapType === 'edindex') {
@@ -627,6 +690,28 @@ function updateLegend(mapType, legendId, title) {
     const legendEl = document.getElementById(legendId);
     if (!legendEl) return;
     
+    // Special legend for top map showing deviation
+    if (mapType === 'shdi') {
+        const range = getDeviationValueRange();
+        const maxDev = range.max.toFixed(3);
+        
+        const gradientCSS = createGradientCSS(mapType);
+        
+        legendEl.innerHTML = `
+            <div class="legend-title">${title}</div>
+            <div class="legend-gradient-container">
+                <div class="legend-gradient" style="background: ${gradientCSS};"></div>
+                <div class="legend-labels">
+                    <span class="legend-label-top">+${maxDev}</span>
+                    <span class="legend-label-middle">0.000</span>
+                    <span class="legend-label-bottom">-${maxDev}</span>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    // Standard legend for component maps
     let minVal, maxVal;
     if (useRelativeScale) {
         const range = getValueRange(mapType);
@@ -660,7 +745,7 @@ function updateAllLegends() {
 
 // ==================== DATA ANALYSIS FUNCTIONS ====================
 
-// Function to determine bottleneck component
+// Function to determine bottleneck component (used for chart coloring)
 function getBottleneckComponent(health, education, income) {
     if (health === null || education === null || income === null) {
         return null;
@@ -672,237 +757,6 @@ function getBottleneckComponent(health, education, income) {
     ];
     values.sort((a, b) => a.value - b.value);
     return values[0].component;
-}
-
-// Function to get bottleneck data for a region
-function getBottleneckData(gdlcode, year) {
-    const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][year];
-    if (!yearData) {
-        return {component: null, value: null};
-    }
-    
-    const health = yearData.healthindex;
-    const education = yearData.edindex;
-    const income = yearData.incindex;
-    
-    const bottleneck = getBottleneckComponent(health, education, income);
-    if (!bottleneck) {
-        return {component: null, value: null};
-    }
-    
-    const value = bottleneck === 'health' ? health : 
-                 bottleneck === 'education' ? education : income;
-    
-    return {component: bottleneck, value: value};
-}
-
-// Function to get difference values for a region
-function getDifferenceData(gdlcode, year, diffType) {
-    const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][year];
-    if (!yearData || !yearData.shdi) {
-        return {value: null, component: null};
-    }
-    
-    const hdi = yearData.shdi;
-    const health = yearData.healthindex;
-    const education = yearData.edindex;
-    const income = yearData.incindex;
-    
-    if (diffType === 'diff-bottleneck') {
-        const bottleneck = getBottleneckComponent(health, education, income);
-        if (!bottleneck) {
-            return {value: null, component: null};
-        }
-        const lowestValue = bottleneck === 'health' ? health : 
-                          bottleneck === 'education' ? education : income;
-        const diff = hdi - lowestValue;
-        return {value: diff, component: bottleneck};
-    } else if (diffType === 'diff-health') {
-        return {value: hdi - health, component: 'health'};
-    } else if (diffType === 'diff-education') {
-        return {value: hdi - education, component: 'education'};
-    } else if (diffType === 'diff-income') {
-        return {value: hdi - income, component: 'income'};
-    }
-    
-    return {value: null, component: null};
-}
-
-// Get color for difference value
-function getColorForDifference(value, component) {
-    if (value === null || value === undefined || isNaN(value)) {
-        return COMPONENT_COLORS.missing;
-    }
-    
-    const normalized = Math.max(0, Math.min(1, Math.abs(value) * 2));
-    return interpolateColor('#ffffff', COMPONENT_COLORS[component], normalized);
-}
-
-// Get value range for difference maps
-function getDifferenceValueRange(diffType) {
-    const values = [];
-    Object.keys(dataLookup).forEach(gdlcode => {
-        const yearData = dataLookup[gdlcode][currentYear];
-        if (yearData) {
-            const diffData = getDifferenceData(gdlcode, currentYear, diffType);
-            if (diffData.value !== null && diffData.value !== undefined && !isNaN(diffData.value)) {
-                values.push(diffData.value);
-            }
-        }
-    });
-    
-    if (values.length === 0) {
-        return {min: 0, max: 0.5};
-    }
-    
-    return {
-        min: Math.min(...values),
-        max: Math.max(...values)
-    };
-}
-
-// Normalize difference value based on scale mode
-function normalizeDifferenceValue(value, diffType) {
-    if (value === null || value === undefined || isNaN(value)) {
-        return null;
-    }
-    
-    if (useRelativeScale) {
-        const range = getDifferenceValueRange(diffType);
-        if (range.max === range.min) {
-            return 0.5;
-        }
-        return (value - range.min) / (range.max - range.min);
-    } else {
-        return Math.max(0, Math.min(1, Math.abs(value) * 2));
-    }
-}
-
-// Style function for difference maps
-function createDifferenceStyleFunction(diffType) {
-    return function(feature) {
-        const gdlcode = feature.properties.gdlcode;
-        const diffData = getDifferenceData(gdlcode, currentYear, diffType);
-        
-        const isSelected = selectedGdlcode === gdlcode;
-        let fillColor = COMPONENT_COLORS.missing;
-        
-        if (diffData.value !== null && diffData.component) {
-            const normalized = normalizeDifferenceValue(diffData.value, diffType);
-            if (normalized !== null) {
-                fillColor = interpolateColor('#ffffff', COMPONENT_COLORS[diffData.component], normalized);
-            }
-        }
-        
-        return {
-            fillColor: fillColor,
-            color: isSelected ? '#ff0000' : '#333',
-            weight: isSelected ? 3 : 1,
-            fillOpacity: diffData.value !== null ? 0.7 : 0.3,
-            opacity: 1
-        };
-    };
-}
-
-// Update difference maps (TODO: Implement D3 version)
-function updateDifferenceMaps() {
-    // TODO: Implement D3-based difference maps
-    // This will be implemented after the 4 components view is complete
-    console.log('Difference maps not yet implemented with D3');
-}
-
-// Update difference legends
-function updateDifferenceLegends() {
-    diffMapTypes.forEach(({type, legendId, title}) => {
-        const legendEl = document.getElementById(legendId);
-        if (!legendEl) return;
-        
-        let minVal, maxVal;
-        if (useRelativeScale) {
-            const range = getDifferenceValueRange(type);
-            minVal = range.min.toFixed(3);
-            maxVal = range.max.toFixed(3);
-        } else {
-            minVal = '0.000';
-            maxVal = '0.500';
-        }
-        
-        let componentColor = '#ffffff';
-        if (type === 'diff-bottleneck') {
-            componentColor = COMPONENT_COLORS.health;
-        } else if (type === 'diff-health') {
-            componentColor = COMPONENT_COLORS.health;
-        } else if (type === 'diff-education') {
-            componentColor = COMPONENT_COLORS.education;
-        } else if (type === 'diff-income') {
-            componentColor = COMPONENT_COLORS.income;
-        }
-        
-        const gradientCSS = `linear-gradient(to top, #ffffff, ${componentColor})`;
-        
-        legendEl.innerHTML = `
-            <div class="legend-title">${title}</div>
-            <div class="legend-gradient-container">
-                <div class="legend-gradient" style="background: ${gradientCSS};"></div>
-                <div class="legend-labels">
-                    <span class="legend-label-top">${maxVal}</span>
-                    <span class="legend-label-bottom">${minVal}</span>
-                </div>
-            </div>
-        `;
-    });
-}
-
-// Style function for bottleneck map
-function createBottleneckStyleFunction() {
-    return function(feature) {
-        const gdlcode = feature.properties.gdlcode;
-        const bottleneckData = getBottleneckData(gdlcode, currentYear);
-        
-        const isSelected = selectedGdlcode === gdlcode;
-        let fillColor = COMPONENT_COLORS.missing;
-        
-        if (bottleneckData.component) {
-            fillColor = COMPONENT_COLORS[bottleneckData.component];
-        }
-        
-        return {
-            fillColor: fillColor,
-            color: isSelected ? '#ff0000' : '#333',
-            weight: isSelected ? 3 : 1,
-            fillOpacity: bottleneckData.component ? 0.7 : 0.3,
-            opacity: 1
-        };
-    };
-}
-
-// Update bottleneck map (TODO: Implement D3 version)
-function updateBottleneckMap() {
-    // TODO: Implement D3-based bottleneck map
-    // This will be implemented after the 4 components view is complete
-    console.log('Bottleneck map not yet implemented with D3');
-}
-
-// Update bottleneck legend
-function updateBottleneckLegend() {
-    const legendEl = document.getElementById('legend-bottleneck');
-    if (!legendEl) return;
-    
-    legendEl.innerHTML = `
-        <div class="bottleneck-legend-title">Bottleneck Component</div>
-        <div class="bottleneck-legend-item">
-            <div class="bottleneck-legend-color" style="background-color: ${COMPONENT_COLORS.health};"></div>
-            <span>Health</span>
-        </div>
-        <div class="bottleneck-legend-item">
-            <div class="bottleneck-legend-color" style="background-color: ${COMPONENT_COLORS.education};"></div>
-            <span>Education</span>
-        </div>
-        <div class="bottleneck-legend-item">
-            <div class="bottleneck-legend-color" style="background-color: ${COMPONENT_COLORS.income};"></div>
-            <span>Income</span>
-        </div>
-    `;
 }
 
 // Switch visualization mode
@@ -923,28 +777,12 @@ function switchVisualization(mode) {
     }
     
     document.getElementById('viz-components-container').classList.toggle('active', mode === 'components');
-    document.getElementById('viz-difference-container').classList.toggle('active', mode === 'difference');
-    document.getElementById('viz-bottleneck-container').classList.toggle('active', mode === 'bottleneck');
-    
-    const scaleToggle = document.getElementById('scale-toggle');
-    if (scaleToggle) {
-        scaleToggle.style.display = (mode === 'components' || mode === 'difference') ? 'block' : 'none';
-    }
     
     // Trigger resize for D3 maps if needed
     setTimeout(() => {
         // Maps will resize automatically on next update
         updateMaps();
     }, 200);
-    
-    if (mode === 'bottleneck') {
-        updateBottleneckMap();
-        updateBottleneckLegend();
-    } else if (mode === 'difference') {
-        updateDifferenceMaps();
-    } else {
-        updateMaps();
-    }
 }
 
 // Style function factory
@@ -1002,13 +840,7 @@ function updateMaps() {
 // Function to select a region
 function selectRegion(gdlcode) {
     selectedGdlcode = gdlcode;
-    if (currentVizMode === 'components') {
         updateMaps();
-    } else if (currentVizMode === 'difference') {
-        updateDifferenceMaps();
-    } else {
-        updateBottleneckMap();
-    }
     updateChart();
 }
 
@@ -1842,29 +1674,6 @@ function initMaps() {
                 }
             });
             
-            // Initialize difference maps (for later)
-            const diffMapTop = initD3Map('map-diff-top', null, null, null);
-            if (diffMapTop) diffMaps.push(diffMapTop);
-        
-        const diffMapIds = ['map-diff-bottom-1', 'map-diff-bottom-2', 'map-diff-bottom-3'];
-            diffMapIds.forEach((id, index) => {
-                const map = initD3Map(id, null, null, null);
-                if (map) diffMaps.push(map);
-            });
-            
-            // Create shared zoom behavior for difference maps
-            sharedZoomDiffMaps = D3Map.createSharedZoom(diffMaps);
-            
-            // Attach shared zoom to all difference maps
-            diffMaps.forEach(map => {
-                if (map && map.initialized) {
-                    map.setZoomBehavior(sharedZoomDiffMaps);
-                }
-            });
-            
-            // Initialize bottleneck map (for later)
-            bottleneckMap = initD3Map('map-bottleneck', null, null, null);
-            
             // Calculate common projection for all maps to ensure synchronization
             // Use the top map (first map) as reference center point
             if (geojsonData && maps.length > 0 && maps[0] && maps[0].initialized) {
@@ -1911,10 +1720,6 @@ function initMaps() {
                 });
         
         updateMaps();
-            // Note: updateDifferenceMaps and updateBottleneckMap will be implemented later
-            // updateDifferenceMaps();
-            // updateBottleneckMap();
-            // updateBottleneckLegend();
         }, 100);
     });
 }
@@ -1925,13 +1730,7 @@ function initMaps() {
 document.getElementById('year-slider').addEventListener('input', function(e) {
     currentYear = parseInt(e.target.value);
     document.getElementById('year-display').textContent = currentYear;
-    if (currentVizMode === 'components') {
         updateMaps();
-    } else if (currentVizMode === 'difference') {
-        updateDifferenceMaps();
-    } else {
-        updateBottleneckMap();
-    }
 });
 
 // Scale toggle handler
@@ -1939,11 +1738,7 @@ document.getElementById('scale-toggle').addEventListener('click', function() {
     useRelativeScale = !useRelativeScale;
     this.textContent = useRelativeScale ? 'Scale: Relative' : 'Scale: Absolute';
     this.classList.toggle('active', useRelativeScale);
-    if (currentVizMode === 'components') {
         updateMaps();
-    } else if (currentVizMode === 'difference') {
-        updateDifferenceMaps();
-    }
 });
 
 // Visualization mode buttons

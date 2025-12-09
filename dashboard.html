@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>v11</title>
+    <title>v13</title>
     <link rel="stylesheet" href="dashboard.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
@@ -14,15 +14,7 @@
             <h3>Visualizations</h3>
             <button class="viz-button active" data-viz="components" id="viz-components">4-Map Components</button>
             <div id="desc-components" class="viz-description">
-                Shows the overall HDI (top map) and the three component indices: Health, Education, and Income (bottom maps). Each map uses a color gradient to represent index values.
-            </div>
-            <button class="viz-button" data-viz="difference" id="viz-difference">4-Map Difference</button>
-            <div id="desc-difference" class="viz-description hidden">
-                Shows the difference between HDI and component values. The top map displays HDI minus the lowest component (bottleneck), colored by the bottleneck component. Bottom maps show HDI minus each specific component, highlighting how much each component lags behind overall development.
-            </div>
-            <button class="viz-button" data-viz="bottleneck" id="viz-bottleneck">Bottleneck View</button>
-            <div id="desc-bottleneck" class="viz-description hidden">
-                Displays which component (Health, Education, or Income) is the bottleneck for each region - the component with the lowest value that limits overall HDI development. Regions are colored by their bottleneck component.
+                Work in progress...
             </div>
         </div>
         
@@ -39,7 +31,7 @@
                 <!-- 4-Map Components View -->
                 <div id="viz-components-container" class="viz-container">
                     <div id="map-top" class="map-top">
-                        <div class="map-label">HDI (Overall)</div>
+                        <div class="map-label">HDI Deviation from Country Average</div>
                         <div id="legend-top" class="map-legend"></div>
                     </div>
                     <div class="maps-bottom">
@@ -55,36 +47,6 @@
                             <div class="map-label">Income Index</div>
                             <div id="legend-bottom-3" class="map-legend"></div>
                         </div>
-                    </div>
-                </div>
-                
-                <!-- Difference View -->
-                <div id="viz-difference-container" class="viz-container">
-                    <div id="map-diff-top" class="map-top">
-                        <div class="map-label">HDI - Lowest Component</div>
-                        <div id="legend-diff-top" class="map-legend"></div>
-                    </div>
-                    <div class="maps-bottom">
-                        <div id="map-diff-bottom-1" class="map-bottom">
-                            <div class="map-label">HDI - Health</div>
-                            <div id="legend-diff-bottom-1" class="map-legend"></div>
-                        </div>
-                        <div id="map-diff-bottom-2" class="map-bottom">
-                            <div class="map-label">HDI - Education</div>
-                            <div id="legend-diff-bottom-2" class="map-legend"></div>
-                        </div>
-                        <div id="map-diff-bottom-3" class="map-bottom">
-                            <div class="map-label">HDI - Income</div>
-                            <div id="legend-diff-bottom-3" class="map-legend"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Bottleneck View -->
-                <div id="viz-bottleneck-container" class="viz-container">
-                    <div id="map-bottleneck" class="map-full">
-                        <div class="map-label">Bottleneck Component</div>
-                        <div id="legend-bottleneck" class="bottleneck-legend"></div>
                     </div>
                 </div>
             </div>
