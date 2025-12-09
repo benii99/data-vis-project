@@ -1,6 +1,8 @@
-/* ---------------- CONFIG ---------------- */
+/* ==================== CONFIGURATION ==================== */
 const geojsonUrl = "http://127.0.0.1:8080/data/geojson/gdl_regons_simplified_5km.geojson";
 const csvUrl = "http://127.0.0.1:8080/data/processed/subnational_hdi_processed.csv";
+
+/* ==================== UTILITY FUNCTIONS ==================== */
 
 // Helper function to convert string to number, handling NaN
 function toNumber(s) {
@@ -47,7 +49,7 @@ function permutations(xs) {
     return out;
 }
 
-// State
+/* ==================== GLOBAL STATE ==================== */
 let geojsonData = null;
 let dataLookup = {};
 let timeSeries = {};
@@ -59,271 +61,310 @@ let chart = null;
 let useRelativeScale = true;
 let currentVizMode = 'components';
 
+// Common projection parameters for synchronization
+let commonProjection = null;
+let referenceWidth = 0;
+let referenceHeight = 0;
+
+// Shared zoom behaviors for synchronization
+let sharedZoomMaps = null;
+let sharedZoomDiffMaps = null;
+
 // Store all map instances (D3-based)
-const maps = [];
+const maps = []; // Array of D3Map instances
 const diffMaps = [];
 let bottleneckMap = null;
-let isSyncing = false;
 
-// D3 Map class to replace Leaflet maps
+/* ==================== D3MAP CLASS ==================== */
+
+// D3Map class to encapsulate map functionality
 class D3Map {
-    constructor(containerId) {
+    constructor(containerId, options = {}) {
         this.containerId = containerId;
-        this.container = d3.select(`#${containerId}`);
-        this.width = 0;
-        this.height = 0;
-        this.projection = d3.geoMercator();
-        this.path = d3.geoPath().projection(this.projection);
-        this.zoom = d3.zoom();
+        this.mapType = options.mapType || null;
+        this.syncGroup = options.syncGroup || null; // Array of maps to sync with
+        this.syncIndex = options.syncIndex || null; // Index in sync group
+        
         this.svg = null;
         this.g = null;
-        this.features = null;
+        this.projection = null;
+        this.path = null;
+        this.zoom = null;
+        this.width = 0;
+        this.height = 0;
         this.tooltip = null;
-        this.k = 1; // zoom scale
-        this.x = 0; // translate x
-        this.y = 0; // translate y
         
-        this.init();
+        this.initialized = false;
     }
     
-    init() {
-        // Clear container
-        this.container.selectAll("*").remove();
+    initialize() {
+        const container = d3.select(`#${this.containerId}`);
+        if (container.empty()) return false;
         
-        // Update size first to get dimensions
-        this.updateSize();
+        // Get container dimensions
+        const containerNode = container.node();
+        let width = containerNode.clientWidth;
+        let height = containerNode.clientHeight;
+        
+        // If dimensions are 0 or invalid, use defaults
+        if (!width || width === 0) width = 800;
+        if (!height || height === 0) height = 600;
+        
+        this.width = width;
+        this.height = height;
         
         // Create SVG
-        this.svg = this.container.append("svg")
-            .attr("width", "100%")
-            .attr("height", "100%")
-            .style("cursor", "grab");
+        this.svg = container.append('svg')
+            .attr('width', '100%')
+            .attr('height', '100%')
+            .attr('viewBox', `0 0 ${width} ${height}`)
+            .attr('preserveAspectRatio', 'xMidYMid meet')
+            .style('background-color', '#fafafa')
+            .style('display', 'block');
+        
+        // Create projection - use Mercator projection
+        this.projection = d3.geoMercator();
+        this.path = d3.geoPath().projection(this.projection);
+        
+        // Fit projection to GeoJSON data
+        // Use common projection if available (for synchronization)
+        if (commonProjection && geojsonData) {
+            // Copy the common projection parameters
+            this.projection.scale(commonProjection.scale())
+                .translate(commonProjection.translate());
+        } else if (geojsonData) {
+            this.projection.fitSize([width, height], geojsonData);
+        } else {
+            // Default projection if no data yet
+            this.projection.scale(150).translate([width / 2, height / 2]);
+        }
         
         // Create main group for map features
-        this.g = this.svg.append("g");
+        this.g = this.svg.append('g');
         
-        // Create tooltip element (only once, reuse if exists)
-        let tooltip = d3.select("body").select(".d3-map-tooltip");
-        if (tooltip.empty()) {
-            this.tooltip = d3.select("body").append("div")
-                .attr("class", "d3-map-tooltip")
-                .style("opacity", 0)
-                .style("position", "absolute")
-                .style("background", "rgba(0, 0, 0, 0.8)")
-                .style("color", "white")
-                .style("padding", "8px")
-                .style("border-radius", "4px")
-                .style("pointer-events", "none")
-                .style("font-size", "12px")
-                .style("z-index", "1000");
-        } else {
-            this.tooltip = tooltip;
+        // Zoom behavior will be set up after all maps are initialized
+        // This allows us to create a shared zoom behavior for the sync group
+        this.zoom = null;
+        
+        // Set initial transform (will be applied when zoom is set up)
+        this.initialTransform = d3.zoomIdentity;
+        
+        // Create tooltip
+        this.tooltip = d3.select('body').selectAll(`.map-tooltip-${this.containerId}`)
+            .data([0])
+            .join('div')
+            .attr('class', `map-tooltip map-tooltip-${this.containerId}`)
+            .style('position', 'absolute')
+            .style('padding', '8px')
+            .style('background', 'rgba(0, 0, 0, 0.8)')
+            .style('color', 'white')
+            .style('border-radius', '4px')
+            .style('pointer-events', 'none')
+            .style('opacity', 0)
+            .style('font-size', '12px')
+            .style('z-index', 1000);
+        
+        this.initialized = true;
+        return true;
+    }
+    
+    update(mapType) {
+        if (!this.initialized || !geojsonData || !this.g) return;
+        
+        this.mapType = mapType || this.mapType;
+        if (!this.mapType) return;
+        
+        // Ensure projection is properly fitted
+        const containerNode = d3.select(`#${this.containerId}`).node();
+        let needsRefit = false;
+        if (containerNode) {
+            const width = containerNode.clientWidth || this.width;
+            const height = containerNode.clientHeight || this.height;
+            if (width > 0 && height > 0 && (width !== this.width || height !== this.height)) {
+                this.width = width;
+                this.height = height;
+                this.svg.attr('viewBox', `0 0 ${width} ${height}`);
+                needsRefit = true;
+            }
         }
         
-        // Set up zoom behavior
-        this.zoom
-            .scaleExtent([0.5, 8])
-            .on("zoom", (event) => {
-                if (isSyncing) return;
-                this.k = event.transform.k;
-                this.x = event.transform.x;
-                this.y = event.transform.y;
-                this.g.attr("transform", event.transform);
-            })
-            .on("end", () => {
-                if (!isSyncing && this.syncCallback) {
-                    this.syncCallback(this);
-                }
-            });
-        
-        this.svg.call(this.zoom);
-        
-        // Fit bounds to initialize projection
-        this.fitBounds();
-    }
-    
-    updateSize() {
-        const rect = this.container.node().getBoundingClientRect();
-        this.width = rect.width;
-        this.height = rect.height;
-        
-        this.svg.attr("viewBox", `0 0 ${this.width} ${this.height}`);
-        
-        // Update projection to fit bounds
-        this.fitBounds();
-    }
-    
-    fitBounds() {
-        if (!geojsonData || this.width === 0 || this.height === 0) return;
-        
-        // Calculate bounds using a temporary projection
-        const tempProjection = d3.geoMercator().scale(1).translate([0, 0]);
-        const tempPath = d3.geoPath().projection(tempProjection);
-        const bounds = tempPath.bounds(geojsonData);
-        
-        if (!bounds || bounds.length < 2) return;
-        
-        const dx = bounds[1][0] - bounds[0][0];
-        const dy = bounds[1][1] - bounds[0][1];
-        const x = (bounds[0][0] + bounds[1][0]) / 2;
-        const y = (bounds[0][1] + bounds[1][1]) / 2;
-        const scale = Math.min(8, 0.95 / Math.max(dx / this.width, dy / this.height));
-        const translate = [this.width / 2 - scale * x, this.height / 2 - scale * y];
-        
-        // Set base projection (this stays fixed)
-        this.projection.scale(scale).translate(translate);
-        this.path = d3.geoPath().projection(this.projection);
-        
-        // Reset zoom transform to identity (no additional transform)
-        const identity = d3.zoomIdentity;
-        this.svg.call(this.zoom.transform, identity);
-        this.k = 1;
-        this.x = 0;
-        this.y = 0;
-        this.g.attr("transform", identity);
-    }
-    
-    setView(center, zoom) {
-        if (!center || this.width === 0 || this.height === 0) return;
-        
-        // Ensure projection is set up
-        if (this.projection.scale() === 1) {
-            this.fitBounds();
+        // Refit projection if needed
+        // But use common projection if available to maintain synchronization
+        if (needsRefit) {
+            if (commonProjection) {
+                // Use common projection parameters to maintain sync
+                this.projection.scale(commonProjection.scale())
+                    .translate(commonProjection.translate());
+            } else if (geojsonData) {
+                this.projection.fitSize([this.width, this.height], geojsonData);
+            }
+            this.path.projection(this.projection);
         }
         
-        // Get current projection point for the center
-        const point = this.projection(center);
-        if (!point) return;
+        // Remove existing paths
+        this.g.selectAll('path.region').remove();
         
-        // Calculate zoom level
-        const zoomLevel = zoom !== undefined ? zoom : 2;
-        const scale = Math.pow(2, zoomLevel);
-        
-        // Calculate transform to center on the point at the desired zoom
-        const translate = [this.width / 2 - scale * point[0], this.height / 2 - scale * point[1]];
-        
-        const transform = d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale);
-        this.svg.call(this.zoom.transform, transform);
-        this.k = transform.k;
-        this.x = transform.x;
-        this.y = transform.y;
-    }
-    
-    getCenter() {
-        if (this.width === 0 || this.height === 0) return [20, 0];
-        const point = this.projection.invert([(this.width / 2 - this.x) / this.k, (this.height / 2 - this.y) / this.k]);
-        return point || [20, 0];
-    }
-    
-    getZoom() {
-        return Math.log2(this.k);
-    }
-    
-    syncFrom(sourceMap) {
-        if (isSyncing || !sourceMap) return;
-        isSyncing = true;
-        
-        const center = sourceMap.getCenter();
-        const zoom = sourceMap.getZoom();
-        this.setView(center, zoom);
-        
-        setTimeout(() => { isSyncing = false; }, 50);
-    }
-    
-    renderFeatures(styleFunction, onEachFeature) {
-        if (!geojsonData || !this.g) return;
-        
-        // Ensure projection is initialized
-        if (this.width > 0 && this.height > 0 && this.projection.scale() === 1) {
-            this.fitBounds();
-        }
-        
-        // Remove existing features
-        this.g.selectAll("path.feature").remove();
-        
-        // Update path generator
-        this.path = d3.geoPath().projection(this.projection);
-        
-        // Add features
-        this.features = this.g.selectAll("path.feature")
+        // Bind data and create paths
+        const paths = this.g.selectAll('path.region')
             .data(geojsonData.features)
-            .enter()
-            .append("path")
-            .attr("class", "feature")
-            .attr("d", this.path)
-            .attr("fill", (d) => {
-                const style = styleFunction(d);
-                return style.fillColor || style.fill || "#ccc";
-            })
-            .attr("stroke", (d) => {
-                const style = styleFunction(d);
-                return style.color || style.stroke || "#333";
-            })
-            .attr("stroke-width", (d) => {
-                const style = styleFunction(d);
-                return style.weight || style.strokeWidth || 1;
-            })
-            .attr("fill-opacity", (d) => {
-                const style = styleFunction(d);
-                return style.fillOpacity !== undefined ? style.fillOpacity : 0.7;
-            })
-            .attr("stroke-opacity", (d) => {
-                const style = styleFunction(d);
-                return style.opacity !== undefined ? style.opacity : 1;
-            })
-            .style("cursor", "pointer")
-            .on("mouseover", (event, d) => {
-                if (onEachFeature) {
-                    const tooltipData = onEachFeature(d);
-                    if (tooltipData && tooltipData.tooltip) {
-                        this.tooltip
-                            .style("opacity", 1)
-                            .html(tooltipData.tooltip);
+            .join('path')
+            .attr('class', 'region')
+            .attr('d', this.path)
+            .attr('fill', d => {
+                const gdlcode = d.properties.gdlcode;
+                const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                let value = null;
+                if (yearData) {
+                    if (this.mapType === 'shdi') {
+                        value = yearData.shdi;
+                    } else if (this.mapType === 'healthindex') {
+                        value = yearData.healthindex;
+                    } else if (this.mapType === 'edindex') {
+                        value = yearData.edindex;
+                    } else if (this.mapType === 'incindex') {
+                        value = yearData.incindex;
                     }
                 }
+                return getColorForValue(value, this.mapType);
             })
-            .on("mousemove", (event) => {
+            .attr('stroke', d => {
+                const gdlcode = d.properties.gdlcode;
+                return selectedGdlcode === gdlcode ? '#ff0000' : '#333';
+            })
+            .attr('stroke-width', d => {
+                const gdlcode = d.properties.gdlcode;
+                return selectedGdlcode === gdlcode ? 2 : 0.5;
+            })
+            .attr('vector-effect', 'non-scaling-stroke')
+            .style('shape-rendering', 'geometricPrecision')
+            .attr('fill-opacity', d => {
+                const gdlcode = d.properties.gdlcode;
+                const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                let value = null;
+                if (yearData) {
+                    if (this.mapType === 'shdi') {
+                        value = yearData.shdi;
+                    } else if (this.mapType === 'healthindex') {
+                        value = yearData.healthindex;
+                    } else if (this.mapType === 'edindex') {
+                        value = yearData.edindex;
+                    } else if (this.mapType === 'incindex') {
+                        value = yearData.incindex;
+                    }
+                }
+                return value !== null ? 0.7 : 0.3;
+            })
+            .style('cursor', 'pointer')
+            .on('mouseover', (event, d) => {
+                const gdlcode = d.properties.gdlcode;
+                const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                
+                let value = null;
+                let label = this.mapType.toUpperCase();
+                if (yearData) {
+                    if (this.mapType === 'shdi') {
+                        value = yearData.shdi;
+                        label = 'HDI';
+                    } else if (this.mapType === 'healthindex') {
+                        value = yearData.healthindex;
+                        label = 'Health';
+                    } else if (this.mapType === 'edindex') {
+                        value = yearData.edindex;
+                        label = 'Education';
+                    } else if (this.mapType === 'incindex') {
+                        value = yearData.incindex;
+                        label = 'Income';
+                    }
+                }
+                
+                const regionName = yearData ? yearData.region : gdlcode;
+                const tooltipText = value !== null 
+                    ? `${regionName}<br>${label}: ${value.toFixed(3)}`
+                    : `${regionName}<br>No data`;
+                
                 this.tooltip
-                    .style("left", (event.pageX + 10) + "px")
-                    .style("top", (event.pageY - 10) + "px");
+                    .html(tooltipText)
+                    .style('opacity', 1)
+                    .style('left', (event.pageX + 10) + 'px')
+                    .style('top', (event.pageY - 10) + 'px');
             })
-            .on("mouseout", () => {
-                this.tooltip.style("opacity", 0);
+            .on('mousemove', (event) => {
+                this.tooltip
+                    .style('left', (event.pageX + 10) + 'px')
+                    .style('top', (event.pageY - 10) + 'px');
             })
-            .on("click", (event, d) => {
-                event.stopPropagation();
-                if (onEachFeature) {
-                    const clickData = onEachFeature(d);
-                    if (clickData && clickData.onClick) {
-                        clickData.onClick();
-                    }
-                }
+            .on('mouseout', () => {
+                this.tooltip.style('opacity', 0);
+            })
+            .on('click', (event, d) => {
+                selectRegion(d.properties.gdlcode);
             });
     }
     
-    invalidateSize() {
-        const oldWidth = this.width;
-        const oldHeight = this.height;
-        this.updateSize();
+    resize() {
+        if (!this.initialized) return;
         
-        // If size changed significantly, re-fit bounds
-        if (Math.abs(oldWidth - this.width) > 10 || Math.abs(oldHeight - this.height) > 10) {
-            this.fitBounds();
+        const containerNode = d3.select(`#${this.containerId}`).node();
+        if (containerNode) {
+            const newWidth = containerNode.clientWidth || this.width;
+            const newHeight = containerNode.clientHeight || this.height;
+            
+            if (newWidth > 0 && newHeight > 0) {
+                this.width = newWidth;
+                this.height = newHeight;
+                this.svg.attr('viewBox', `0 0 ${newWidth} ${newHeight}`);
+                
+                // Use common projection if available to maintain synchronization
+                if (commonProjection) {
+                    this.projection.scale(commonProjection.scale())
+                        .translate(commonProjection.translate());
+                    this.path.projection(this.projection);
+                } else if (geojsonData) {
+                    this.projection.fitSize([newWidth, newHeight], geojsonData);
+                    this.path.projection(this.projection);
+                }
+            }
         }
+    }
+    
+    setZoomBehavior(zoomBehavior) {
+        if (!this.initialized || !this.svg) return;
+        this.zoom = zoomBehavior;
+        this.svg.call(this.zoom);
+        // Apply initial transform
+        this.svg.call(this.zoom.transform, this.initialTransform);
+    }
+    
+    getTransform() {
+        if (!this.initialized || !this.g || !this.g.node()) return null;
+        return d3.zoomTransform(this.g.node());
+    }
+    
+    // Static method to create shared zoom behavior for a group of maps
+    static createSharedZoom(mapGroup) {
+        const zoom = d3.zoom()
+            .scaleExtent([0.5, 8])
+            .on('zoom', (event) => {
+                // Apply the same transform to all maps in the group
+                mapGroup.forEach(map => {
+                    if (map && map.initialized && map.g) {
+                        map.g.attr('transform', event.transform);
+                    }
+                });
+            });
         
-        // Re-render features if we have style functions
-        if (this.currentStyleFunction && this.currentOnEachFeature) {
-            this.renderFeatures(this.currentStyleFunction, this.currentOnEachFeature);
-        }
+        return zoom;
     }
 }
+
+/* ==================== CONSTANTS ==================== */
 
 // Component colors
 const COMPONENT_COLORS = {
     health: '#D81B60',
     education: '#1E88E5',
     income: '#FFC107',
-    missing: '#cccccc'
+    missing: '#E0E0E0'
 };
 
 // Map types and their legend IDs
@@ -342,12 +383,54 @@ const diffMapTypes = [
     {id: 'map-diff-bottom-3', type: 'diff-income', legendId: 'legend-diff-bottom-3', title: 'HDI - Income'}
 ];
 
+/* ==================== GEOJSON PROCESSING ==================== */
+
+// Simple function to rewind GeoJSON features (fixes polygon winding order)
+// Based on: https://stackoverflow.com/a/49311635
+function rewindFeature(feature, reverse) {
+    const geom = feature.geometry;
+    if (geom.type === 'Polygon') {
+        geom.coordinates = rewindRings(geom.coordinates, reverse);
+    } else if (geom.type === 'MultiPolygon') {
+        geom.coordinates = geom.coordinates.map(rings => rewindRings(rings, reverse));
+    }
+    return feature;
+}
+
+function rewindRings(rings, reverse) {
+    if (rings.length === 0) return rings;
+    rings[0] = rewindRing(rings[0], reverse);
+    for (let i = 1; i < rings.length; i++) {
+        rings[i] = rewindRing(rings[i], !reverse);
+    }
+    return rings;
+}
+
+function rewindRing(ring, reverse) {
+    if (ring.length < 4) return ring;
+    let area = 0;
+    for (let i = 0, len = ring.length, j = len - 1; i < len; j = i++) {
+        area += (ring[i][0] - ring[j][0]) * (ring[j][1] + ring[i][1]);
+    }
+    if (area > 0 !== reverse) {
+        return ring.reverse();
+    }
+    return ring;
+}
+
+/* ==================== DATA LOADING ==================== */
+
 // Load and process data
 Promise.all([
     d3.json(geojsonUrl),
     d3.csv(csvUrl)
 ]).then(([geojson, csvRows]) => {
-    geojsonData = geojson;
+    // Rewind features to fix polygon winding order (important for proper rendering)
+    const fixedFeatures = geojson.features.map(feature => rewindFeature(feature, true));
+    geojsonData = {
+        type: 'FeatureCollection',
+        features: fixedFeatures
+    };
     rawCsvData = csvRows; // Store raw CSV data for horizon chart
     
     // Process CSV data
@@ -416,23 +499,24 @@ Promise.all([
     document.getElementById('loading').textContent = 'Error loading data. Please check that the server is running and data files are accessible.';
 });
 
-// Calculate map center from GeoJSON
-function getMapCenter() {
-    if (!geojsonData) return [20, 0];
-    
-    // Use a temporary projection to calculate center
-    const tempProjection = d3.geoMercator().scale(1).translate([0, 0]);
-    const tempPath = d3.geoPath().projection(tempProjection);
-    const bounds = tempPath.bounds(geojsonData);
-    
-    if (!bounds || bounds.length < 2) return [20, 0];
-    
-    const centerX = (bounds[0][0] + bounds[1][0]) / 2;
-    const centerY = (bounds[0][1] + bounds[1][1]) / 2;
-    const center = tempProjection.invert([centerX, centerY]);
-    
-    return center || [20, 0];
+// ==================== GEOJSON UTILITY FUNCTIONS ====================
+
+// Calculate map center and bounds from GeoJSON
+function getMapBounds() {
+    if (!geojsonData) return null;
+    const bounds = d3.geoBounds(geojsonData);
+    return bounds;
 }
+
+function getMapCenter() {
+    const bounds = getMapBounds();
+    if (!bounds) return [0, 20];
+    const centerLon = (bounds[0][0] + bounds[1][0]) / 2;
+    const centerLat = (bounds[0][1] + bounds[1][1]) / 2;
+    return [centerLat, centerLon];
+}
+
+// ==================== COLOR AND STYLING FUNCTIONS ====================
 
 // Helper function to interpolate between two colors
 function interpolateColor(color1, color2, factor) {
@@ -573,6 +657,8 @@ function updateAllLegends() {
         updateLegend(type, legendId, title);
     });
 }
+
+// ==================== DATA ANALYSIS FUNCTIONS ====================
 
 // Function to determine bottleneck component
 function getBottleneckComponent(health, education, income) {
@@ -718,46 +804,11 @@ function createDifferenceStyleFunction(diffType) {
     };
 }
 
-// Update difference maps
+// Update difference maps (TODO: Implement D3 version)
 function updateDifferenceMaps() {
-    diffMaps.forEach((map, index) => {
-        if (!map) return;
-        
-        const diffType = index === 0 ? 'diff-bottleneck' : 
-                       index === 1 ? 'diff-health' : 
-                       index === 2 ? 'diff-education' : 'diff-income';
-        
-        const styleFunc = createDifferenceStyleFunction(diffType);
-        
-        const onEachFeature = (feature) => {
-            const gdlcode = feature.properties.gdlcode;
-            const diffData = getDifferenceData(gdlcode, currentYear, diffType);
-            const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
-            
-            const regionName = yearData ? yearData.region : feature.properties.gdlcode;
-            let tooltipText = regionName;
-            
-            if (diffData.value !== null) {
-                const diffLabel = diffType === 'diff-bottleneck' ? 'HDI - Lowest' :
-                                diffType === 'diff-health' ? 'HDI - Health' :
-                                diffType === 'diff-education' ? 'HDI - Education' : 'HDI - Income';
-                tooltipText += `<br>${diffLabel}: ${diffData.value.toFixed(3)}`;
-            } else {
-                tooltipText += '<br>No data';
-            }
-            
-            return {
-                tooltip: tooltipText,
-                onClick: () => selectRegion(gdlcode)
-            };
-        };
-        
-        map.currentStyleFunction = styleFunc;
-        map.currentOnEachFeature = onEachFeature;
-        map.renderFeatures(styleFunc, onEachFeature);
-    });
-    
-    updateDifferenceLegends();
+    // TODO: Implement D3-based difference maps
+    // This will be implemented after the 4 components view is complete
+    console.log('Difference maps not yet implemented with D3');
 }
 
 // Update difference legends
@@ -825,36 +876,11 @@ function createBottleneckStyleFunction() {
     };
 }
 
-// Update bottleneck map
+// Update bottleneck map (TODO: Implement D3 version)
 function updateBottleneckMap() {
-    if (!bottleneckMap) return;
-    
-    const styleFunc = createBottleneckStyleFunction();
-    
-    const onEachFeature = (feature) => {
-        const gdlcode = feature.properties.gdlcode;
-        const bottleneckData = getBottleneckData(gdlcode, currentYear);
-        const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
-        
-        const regionName = yearData ? yearData.region : feature.properties.gdlcode;
-        let tooltipText = regionName;
-        
-        if (bottleneckData.component) {
-            const componentName = bottleneckData.component.charAt(0).toUpperCase() + bottleneckData.component.slice(1);
-            tooltipText += `<br>Bottleneck: ${componentName}<br>Value: ${bottleneckData.value.toFixed(3)}`;
-        } else {
-            tooltipText += '<br>No data';
-        }
-        
-        return {
-            tooltip: tooltipText,
-            onClick: () => selectRegion(gdlcode)
-        };
-    };
-    
-    bottleneckMap.currentStyleFunction = styleFunc;
-    bottleneckMap.currentOnEachFeature = onEachFeature;
-    bottleneckMap.renderFeatures(styleFunc, onEachFeature);
+    // TODO: Implement D3-based bottleneck map
+    // This will be implemented after the 4 components view is complete
+    console.log('Bottleneck map not yet implemented with D3');
 }
 
 // Update bottleneck legend
@@ -905,24 +931,10 @@ function switchVisualization(mode) {
         scaleToggle.style.display = (mode === 'components' || mode === 'difference') ? 'block' : 'none';
     }
     
+    // Trigger resize for D3 maps if needed
     setTimeout(() => {
-        maps.forEach(map => {
-            if (map) map.invalidateSize();
-        });
-        diffMaps.forEach(map => {
-            if (map) map.invalidateSize();
-        });
-        if (bottleneckMap) bottleneckMap.invalidateSize();
-        
-        setTimeout(() => {
-            maps.forEach(map => {
-                if (map) map.invalidateSize();
-            });
-            diffMaps.forEach(map => {
-                if (map) map.invalidateSize();
-            });
-            if (bottleneckMap) bottleneckMap.invalidateSize();
-        }, 100);
+        // Maps will resize automatically on next update
+        updateMaps();
     }, 200);
     
     if (mode === 'bottleneck') {
@@ -966,74 +978,26 @@ function createStyleFunction(mapType) {
     };
 }
 
-// Function to sync all maps
-function syncMaps(sourceMap, targetMaps) {
-    if (isSyncing || !sourceMap) return;
-    isSyncing = true;
-    
-    const center = sourceMap.getCenter();
-    const zoom = sourceMap.getZoom();
-    
-    targetMaps.forEach(map => {
-        if (map && map !== sourceMap) {
-            map.setView(center, zoom);
-        }
-    });
-    
-    setTimeout(() => { isSyncing = false; }, 100);
-}
+// ==================== MAP UPDATE FUNCTIONS ====================
 
-// Function to update all maps
+// Function to update all maps (D3-based)
 function updateMaps() {
+    if (!geojsonData) return;
+    
     maps.forEach((map, index) => {
-        if (!map) return;
+        if (!map || !map.initialized) return;
         
         const mapType = index === 0 ? 'shdi' : 
                        index === 1 ? 'healthindex' : 
                        index === 2 ? 'edindex' : 'incindex';
         
-        const styleFunc = createStyleFunction(mapType);
-        
-        const onEachFeature = (feature) => {
-            const gdlcode = feature.properties.gdlcode;
-            const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
-            
-            let value = null;
-            let label = mapType.toUpperCase();
-            if (yearData) {
-                if (mapType === 'shdi') {
-                    value = yearData.shdi;
-                    label = 'HDI';
-                } else if (mapType === 'healthindex') {
-                    value = yearData.healthindex;
-                    label = 'Health';
-                } else if (mapType === 'edindex') {
-                    value = yearData.edindex;
-                    label = 'Education';
-                } else if (mapType === 'incindex') {
-                    value = yearData.incindex;
-                    label = 'Income';
-                }
-            }
-            
-            const regionName = yearData ? yearData.region : feature.properties.gdlcode;
-            const tooltipText = value !== null 
-                ? `${regionName}<br>${label}: ${value.toFixed(3)}`
-                : `${regionName}<br>No data`;
-            
-            return {
-                tooltip: tooltipText,
-                onClick: () => selectRegion(gdlcode)
-            };
-        };
-        
-        map.currentStyleFunction = styleFunc;
-        map.currentOnEachFeature = onEachFeature;
-        map.renderFeatures(styleFunc, onEachFeature);
+        map.update(mapType);
     });
     
     updateAllLegends();
 }
+
+// ==================== INTERACTION FUNCTIONS ====================
 
 // Function to select a region
 function selectRegion(gdlcode) {
@@ -1047,6 +1011,8 @@ function selectRegion(gdlcode) {
     }
     updateChart();
 }
+
+// ==================== CHART FUNCTIONS ====================
 
 // Function to update chart data (when chart already exists)
 function updateChartData() {
@@ -1430,6 +1396,8 @@ function updateChart() {
     // Update horizon chart
     updateHorizonChart();
 }
+
+// ==================== HORIZON CHART FUNCTIONS ====================
 
 // Horizon chart configuration
 const horizonFactors = "shdi,healthindex,edindex,incindex,lifexp,esch,msch,lgnic".split(",");
@@ -1830,76 +1798,134 @@ function updateHorizonChart() {
         .text(d => d.label);
 }
 
+// ==================== MAP MANAGEMENT FUNCTIONS ====================
+
+// Factory function to create and initialize a D3Map instance
+function initD3Map(containerId, mapType, syncGroup, syncIndex) {
+    const map = new D3Map(containerId, {
+        mapType: mapType,
+        syncGroup: syncGroup,
+        syncIndex: syncIndex
+    });
+    
+    if (map.initialize()) {
+        return map;
+    }
+    return null;
+}
+
 // Initialize maps
 function initMaps() {
+    // Use requestAnimationFrame to ensure DOM is ready and containers have dimensions
+    requestAnimationFrame(() => {
+        // Give a small delay to ensure containers are properly sized
     setTimeout(() => {
-        const [centerLat, centerLon] = getMapCenter();
-        
-        // Initialize main component maps
-        const mapTop = new D3Map('map-top');
-        mapTop.syncCallback = (sourceMap) => syncMaps(sourceMap, maps);
-        maps.push(mapTop);
+            // Initialize the 4 component maps with sync group
+            // First create all maps, then set sync groups
+            const mapTop = initD3Map('map-top', 'shdi', null, null);
+            if (mapTop) maps.push(mapTop);
         
         const mapIds = ['map-bottom-1', 'map-bottom-2', 'map-bottom-3'];
-        mapIds.forEach(id => {
-            const map = new D3Map(id);
-            map.syncCallback = (sourceMap) => syncMaps(sourceMap, maps);
-            maps.push(map);
-        });
-        
-        // Initialize difference maps
-        const diffMapTop = new D3Map('map-diff-top');
-        diffMapTop.syncCallback = (sourceMap) => syncMaps(sourceMap, diffMaps);
-        diffMaps.push(diffMapTop);
+            const mapTypes = ['healthindex', 'edindex', 'incindex'];
+            mapIds.forEach((id, index) => {
+                const map = initD3Map(id, mapTypes[index], null, null);
+                if (map) maps.push(map);
+            });
+            
+            // Create shared zoom behavior for component maps
+            sharedZoomMaps = D3Map.createSharedZoom(maps);
+            
+            // Attach shared zoom to all component maps
+            maps.forEach(map => {
+                if (map && map.initialized) {
+                    map.setZoomBehavior(sharedZoomMaps);
+                }
+            });
+            
+            // Initialize difference maps (for later)
+            const diffMapTop = initD3Map('map-diff-top', null, null, null);
+            if (diffMapTop) diffMaps.push(diffMapTop);
         
         const diffMapIds = ['map-diff-bottom-1', 'map-diff-bottom-2', 'map-diff-bottom-3'];
-        diffMapIds.forEach(id => {
-            const map = new D3Map(id);
-            map.syncCallback = (sourceMap) => syncMaps(sourceMap, diffMaps);
-            diffMaps.push(map);
-        });
-        
-        // Initialize bottleneck map
-        bottleneckMap = new D3Map('map-bottleneck');
-        
-        // Set initial view for all maps
-        setTimeout(() => {
-            maps.forEach(map => {
-                if (map) {
-                    map.setView([centerLat, centerLon], 2);
-                    map.invalidateSize();
-                }
+            diffMapIds.forEach((id, index) => {
+                const map = initD3Map(id, null, null, null);
+                if (map) diffMaps.push(map);
             });
+            
+            // Create shared zoom behavior for difference maps
+            sharedZoomDiffMaps = D3Map.createSharedZoom(diffMaps);
+            
+            // Attach shared zoom to all difference maps
             diffMaps.forEach(map => {
-                if (map) {
-                    map.setView([centerLat, centerLon], 2);
-                    map.invalidateSize();
+                if (map && map.initialized) {
+                    map.setZoomBehavior(sharedZoomDiffMaps);
                 }
             });
-            if (bottleneckMap) {
-                bottleneckMap.setView([centerLat, centerLon], 2);
-                bottleneckMap.invalidateSize();
+            
+            // Initialize bottleneck map (for later)
+            bottleneckMap = initD3Map('map-bottleneck', null, null, null);
+            
+            // Calculate common projection for all maps to ensure synchronization
+            // Use the largest map dimensions as reference
+            if (geojsonData && maps.length > 0) {
+                // Find the largest map dimensions
+                let maxWidth = 0;
+                let maxHeight = 0;
+                maps.forEach(map => {
+                    if (map && map.initialized) {
+                        maxWidth = Math.max(maxWidth, map.width);
+                        maxHeight = Math.max(maxHeight, map.height);
+                    }
+                });
+                
+                if (maxWidth > 0 && maxHeight > 0) {
+                    // Create a common projection based on reference dimensions
+                    const refProjection = d3.geoMercator();
+                    refProjection.fitSize([maxWidth, maxHeight], geojsonData);
+                    
+                    // Store common projection parameters
+                    commonProjection = refProjection;
+                    referenceWidth = maxWidth;
+                    referenceHeight = maxHeight;
+                    
+                    // Apply common projection to all maps
+            maps.forEach(map => {
+                        if (map && map.initialized) {
+                            map.projection.scale(commonProjection.scale())
+                                .translate(commonProjection.translate());
+                            map.path.projection(map.projection);
+                        }
+                    });
+                }
             }
             
-            // Second pass to ensure proper sizing
-            setTimeout(() => {
+            // Update all maps after setting common projection
+            updateMaps();
+            
+            // Handle window resize
+            let resizeTimeout;
+            window.addEventListener('resize', function() {
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(() => {
                 maps.forEach(map => {
-                    if (map) map.invalidateSize();
+                        if (map && map.initialized) {
+                            map.resize();
+                        }
                 });
-                diffMaps.forEach(map => {
-                    if (map) map.invalidateSize();
+                    updateMaps();
+                }, 250);
                 });
-                if (bottleneckMap) bottleneckMap.invalidateSize();
-                
-                // Initial render
-                updateMaps();
-                updateDifferenceMaps();
-                updateBottleneckMap();
-                updateBottleneckLegend();
-            }, 100);
-        }, 300);
-    }, 200);
+        
+        updateMaps();
+            // Note: updateDifferenceMaps and updateBottleneckMap will be implemented later
+            // updateDifferenceMaps();
+            // updateBottleneckMap();
+            // updateBottleneckLegend();
+        }, 100);
+    });
 }
+
+/* ==================== EVENT HANDLERS ==================== */
 
 // Year slider handler
 document.getElementById('year-slider').addEventListener('input', function(e) {
