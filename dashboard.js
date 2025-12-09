@@ -1,5 +1,6 @@
 /* ==================== CONFIGURATION ==================== */
 const geojsonUrl = "http://127.0.0.1:8080/data/geojson/gdl_regons_simplified_5km.geojson";
+const countriesGeojsonUrl = "http://127.0.0.1:8080/data/geojson/countries_simplified.geojson";
 const csvUrl = "http://127.0.0.1:8080/data/processed/subnational_hdi_with_deviation.csv";
 
 /* ==================== UTILITY FUNCTIONS ==================== */
@@ -51,6 +52,7 @@ function permutations(xs) {
 
 /* ==================== GLOBAL STATE ==================== */
 let geojsonData = null;
+let countriesGeojsonData = null; // Country boundaries for overlay
 let dataLookup = {};
 let timeSeries = {};
 let rawCsvData = null; // Store raw CSV for horizon chart
@@ -322,6 +324,29 @@ class D3Map {
             .on('click', (event, d) => {
                 selectRegion(d.properties.gdlcode);
             });
+        
+        // Render country outlines on top
+        this.renderCountryOutlines();
+    }
+    
+    renderCountryOutlines() {
+        if (!this.initialized || !countriesGeojsonData || !this.g) return;
+        
+        // Remove existing country outlines
+        this.g.selectAll('path.country-outline').remove();
+        
+        // Add country outlines (stroke only, no fill)
+        this.g.selectAll('path.country-outline')
+            .data(countriesGeojsonData.features)
+            .join('path')
+            .attr('class', 'country-outline')
+            .attr('d', this.path)
+            .attr('fill', 'none')
+            .attr('stroke', '#000000')
+            .attr('stroke-width', 1.5)
+            .attr('stroke-opacity', 0.6)
+            .attr('vector-effect', 'non-scaling-stroke')
+            .style('pointer-events', 'none'); // Don't interfere with region interactions
     }
     
     resize() {
@@ -438,14 +463,23 @@ function rewindRing(ring, reverse) {
 // Load and process data
 Promise.all([
     d3.json(geojsonUrl),
+    d3.json(countriesGeojsonUrl),
     d3.csv(csvUrl)
-]).then(([geojson, csvRows]) => {
+]).then(([geojson, countriesGeojson, csvRows]) => {
     // Rewind features to fix polygon winding order (important for proper rendering)
     const fixedFeatures = geojson.features.map(feature => rewindFeature(feature, true));
     geojsonData = {
         type: 'FeatureCollection',
         features: fixedFeatures
     };
+    
+    // Store countries GeoJSON for overlay (also rewind for consistency)
+    const fixedCountryFeatures = countriesGeojson.features.map(feature => rewindFeature(feature, true));
+    countriesGeojsonData = {
+        type: 'FeatureCollection',
+        features: fixedCountryFeatures
+    };
+    
     rawCsvData = csvRows; // Store raw CSV data for horizon chart
     
     // Process CSV data
