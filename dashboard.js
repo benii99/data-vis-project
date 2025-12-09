@@ -1,6 +1,11 @@
 /* ==================== CONFIGURATION ==================== */
-const geojsonUrl = "http://127.0.0.1:8080/data/geojson/gdl_regons_simplified_5km.geojson";
-const csvUrl = "http://127.0.0.1:8080/data/processed/subnational_hdi_processed.csv";
+// World-level (national) geojson and HDI data
+const worldGeojsonUrl = "http://127.0.0.1:8080/data/geojson/worldmap.geojson";
+const hdrCsvUrl = "http://127.0.0.1:8080/data/processed/hdr_general.csv";
+
+// Subnational (regional) geojson and processed regional CSV (SHDI)
+const regionGeojsonUrl = "http://127.0.0.1:8080/data/geojson/gdl_regons_simplified_5km.geojson";
+const subnationalCsvUrl = "http://127.0.0.1:8080/data/processed/subnational_hdi_processed.csv";
 
 /* ==================== UTILITY FUNCTIONS ==================== */
 
@@ -50,13 +55,25 @@ function permutations(xs) {
 }
 
 /* ==================== GLOBAL STATE ==================== */
-let geojsonData = null;
-let dataLookup = {};
-let timeSeries = {};
-let rawCsvData = null; // Store raw CSV for horizon chart
+// GeoJSON datasets
+let geojsonDataWorld = null; // world features
+let geojsonDataRegions = null; // all region features
+let geojsonData = null; // active dataset used by the maps (points to world or filtered regions)
+
+// Data lookups
+let nationalLookup = {}; // keyed by iso3 -> { year: {hdi, healthindex, edindex, incindex, country}}
+let nationalTimeSeries = {};
+
+let dataLookup = {}; // regional lookup keyed by gdlcode -> { year: {...} }
+let timeSeries = {}; // regional time series (by gdlcode)
+
+let rawNationalCsv = null; // hdr_general raw CSV for horizon chart (national)
+let rawRegionalCsv = null; // subnational raw CSV for horizon chart (regional)
 let years = [];
 let currentYear = null;
 let selectedGdlcode = null;
+let selectedCountryIso = null;
+let overlayRegionFeatures = null; // when a country is selected, keep regional features to draw on top of world
 let chart = null;
 let useRelativeScale = true;
 let currentVizMode = 'components';
@@ -203,8 +220,9 @@ class D3Map {
         
         // Remove existing paths
         this.g.selectAll('path.region').remove();
-        
-        // Bind data and create paths
+        this.g.selectAll('path.overlay-region').remove();
+
+        // Bind data and create paths (works for both world and regional geojson)
         const paths = this.g.selectAll('path.region')
             .data(geojsonData.features)
             .join('path')
@@ -212,44 +230,62 @@ class D3Map {
             .attr('d', this.path)
             .attr('fill', d => {
                 const gdlcode = d.properties.gdlcode;
-                const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
                 let value = null;
-                if (yearData) {
-                    if (this.mapType === 'shdi') {
-                        value = yearData.shdi;
-                    } else if (this.mapType === 'healthindex') {
-                        value = yearData.healthindex;
-                    } else if (this.mapType === 'edindex') {
-                        value = yearData.edindex;
-                    } else if (this.mapType === 'incindex') {
-                        value = yearData.incindex;
+
+                if (gdlcode) {
+                    const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                    if (yearData) {
+                        if (this.mapType === 'shdi') value = yearData.shdi;
+                        else if (this.mapType === 'healthindex') value = yearData.healthindex;
+                        else if (this.mapType === 'edindex') value = yearData.edindex;
+                        else if (this.mapType === 'incindex') value = yearData.incindex;
+                    }
+                } else {
+                    const iso = findIsoFromProps(d.properties);
+                    const yearData = nationalLookup[iso] && nationalLookup[iso][currentYear];
+                    if (yearData) {
+                        if (this.mapType === 'shdi') value = yearData.hdi;
+                        else if (this.mapType === 'healthindex') value = yearData.healthindex;
+                        else if (this.mapType === 'edindex') value = yearData.edindex;
+                        else if (this.mapType === 'incindex') value = yearData.incindex;
                     }
                 }
+
                 return getColorForValue(value, this.mapType);
             })
             .attr('stroke', d => {
                 const gdlcode = d.properties.gdlcode;
-                return selectedGdlcode === gdlcode ? '#ff0000' : '#333';
+                if (gdlcode) return selectedGdlcode === gdlcode ? '#ff0000' : '#333';
+                const iso = findIsoFromProps(d.properties);
+                return selectedCountryIso === iso ? '#ff0000' : '#333';
             })
             .attr('stroke-width', d => {
                 const gdlcode = d.properties.gdlcode;
-                return selectedGdlcode === gdlcode ? 2 : 0.5;
+                if (gdlcode) return selectedGdlcode === gdlcode ? 2 : 0.5;
+                const iso = findIsoFromProps(d.properties);
+                return selectedCountryIso === iso ? 2 : 0.5;
             })
             .attr('vector-effect', 'non-scaling-stroke')
             .style('shape-rendering', 'geometricPrecision')
             .attr('fill-opacity', d => {
                 const gdlcode = d.properties.gdlcode;
-                const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
                 let value = null;
-                if (yearData) {
-                    if (this.mapType === 'shdi') {
-                        value = yearData.shdi;
-                    } else if (this.mapType === 'healthindex') {
-                        value = yearData.healthindex;
-                    } else if (this.mapType === 'edindex') {
-                        value = yearData.edindex;
-                    } else if (this.mapType === 'incindex') {
-                        value = yearData.incindex;
+                if (gdlcode) {
+                    const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                    if (yearData) {
+                        if (this.mapType === 'shdi') value = yearData.shdi;
+                        else if (this.mapType === 'healthindex') value = yearData.healthindex;
+                        else if (this.mapType === 'edindex') value = yearData.edindex;
+                        else if (this.mapType === 'incindex') value = yearData.incindex;
+                    }
+                } else {
+                    const iso = findIsoFromProps(d.properties);
+                    const yearData = nationalLookup[iso] && nationalLookup[iso][currentYear];
+                    if (yearData) {
+                        if (this.mapType === 'shdi') value = yearData.hdi;
+                        else if (this.mapType === 'healthindex') value = yearData.healthindex;
+                        else if (this.mapType === 'edindex') value = yearData.edindex;
+                        else if (this.mapType === 'incindex') value = yearData.incindex;
                     }
                 }
                 return value !== null ? 0.7 : 0.3;
@@ -257,31 +293,37 @@ class D3Map {
             .style('cursor', 'pointer')
             .on('mouseover', (event, d) => {
                 const gdlcode = d.properties.gdlcode;
-                const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
-                
                 let value = null;
                 let label = this.mapType.toUpperCase();
-                if (yearData) {
-                    if (this.mapType === 'shdi') {
-                        value = yearData.shdi;
-                        label = 'HDI';
-                    } else if (this.mapType === 'healthindex') {
-                        value = yearData.healthindex;
-                        label = 'Health';
-                    } else if (this.mapType === 'edindex') {
-                        value = yearData.edindex;
-                        label = 'Education';
-                    } else if (this.mapType === 'incindex') {
-                        value = yearData.incindex;
-                        label = 'Income';
+                let name = '';
+
+                if (gdlcode) {
+                    const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                    if (yearData) {
+                        if (this.mapType === 'shdi') { value = yearData.shdi; label = 'HDI'; }
+                        else if (this.mapType === 'healthindex') { value = yearData.healthindex; label = 'Health'; }
+                        else if (this.mapType === 'edindex') { value = yearData.edindex; label = 'Education'; }
+                        else if (this.mapType === 'incindex') { value = yearData.incindex; label = 'Income'; }
+                        name = yearData.region || gdlcode;
+                    } else {
+                        name = gdlcode;
+                    }
+                } else {
+                    const iso = findIsoFromProps(d.properties);
+                    const yearData = nationalLookup[iso] && nationalLookup[iso][currentYear];
+                    name = (d.properties.name || d.properties.ADMIN || d.properties.country || iso) || iso;
+                    if (yearData) {
+                        if (this.mapType === 'shdi') { value = yearData.hdi; label = 'HDI'; }
+                        else if (this.mapType === 'healthindex') { value = yearData.healthindex; label = 'Health'; }
+                        else if (this.mapType === 'edindex') { value = yearData.edindex; label = 'Education'; }
+                        else if (this.mapType === 'incindex') { value = yearData.incindex; label = 'Income'; }
                     }
                 }
-                
-                const regionName = yearData ? yearData.region : gdlcode;
-                const tooltipText = value !== null 
-                    ? `${regionName}<br>${label}: ${value.toFixed(3)}`
-                    : `${regionName}<br>No data`;
-                
+
+                const tooltipText = value !== null && value !== undefined
+                    ? `${name}<br>${label}: ${value.toFixed(3)}`
+                    : `${name}<br>No data`;
+
                 this.tooltip
                     .html(tooltipText)
                     .style('opacity', 1)
@@ -297,8 +339,61 @@ class D3Map {
                 this.tooltip.style('opacity', 0);
             })
             .on('click', (event, d) => {
-                selectRegion(d.properties.gdlcode);
+                // If region feature -> select region, otherwise select country
+                if (d.properties.gdlcode) {
+                    selectRegion(d.properties.gdlcode);
+                } else {
+                    const iso = findIsoFromProps(d.properties);
+                    selectCountry(iso);
+                }
             });
+
+        // Draw overlay regional features (if any) on top of base world features
+        if (overlayRegionFeatures && Array.isArray(overlayRegionFeatures) && overlayRegionFeatures.length > 0) {
+            const overlay = this.g.selectAll('path.overlay-region')
+                .data(overlayRegionFeatures)
+                .join('path')
+                .attr('class', 'overlay-region')
+                .attr('d', this.path)
+                .attr('fill', d => {
+                    const yearData = dataLookup[d.properties.gdlcode] && dataLookup[d.properties.gdlcode][currentYear];
+                    let value = null;
+                    if (yearData) {
+                        if (this.mapType === 'shdi') value = yearData.shdi;
+                        else if (this.mapType === 'healthindex') value = yearData.healthindex;
+                        else if (this.mapType === 'edindex') value = yearData.edindex;
+                        else if (this.mapType === 'incindex') value = yearData.incindex;
+                    }
+                    return getColorForValue(value, this.mapType);
+                })
+                .attr('stroke', d => selectedGdlcode === d.properties.gdlcode ? '#ff0000' : '#222')
+                .attr('stroke-width', d => selectedGdlcode === d.properties.gdlcode ? 2 : 0.8)
+                .attr('vector-effect', 'non-scaling-stroke')
+                .style('shape-rendering', 'geometricPrecision')
+                .attr('fill-opacity', d => {
+                    const yearData = dataLookup[d.properties.gdlcode] && dataLookup[d.properties.gdlcode][currentYear];
+                    return yearData ? 0.85 : 0.3;
+                })
+                .style('cursor', 'pointer')
+                .on('mouseover', (event, d) => {
+                    const yearData = dataLookup[d.properties.gdlcode] && dataLookup[d.properties.gdlcode][currentYear];
+                    const name = (d.properties.region || d.properties.name || d.properties.GDL_NAME || d.properties.gdlcode) || d.properties.gdlcode;
+                    const value = yearData ? (this.mapType === 'shdi' ? yearData.shdi : (this.mapType === 'healthindex' ? yearData.healthindex : (this.mapType === 'edindex' ? yearData.edindex : yearData.incindex))) : null;
+                    const label = this.mapType === 'shdi' ? 'HDI' : (this.mapType === 'healthindex' ? 'Health' : (this.mapType === 'edindex' ? 'Education' : 'Income'));
+                    const tooltipText = value !== null && value !== undefined ? `${name}<br>${label}: ${value.toFixed(3)}` : `${name}<br>No data`;
+                    this.tooltip.html(tooltipText).style('opacity', 1).style('left', (event.pageX + 10) + 'px').style('top', (event.pageY - 10) + 'px');
+                })
+                .on('mousemove', (event) => {
+                    this.tooltip.style('left', (event.pageX + 10) + 'px').style('top', (event.pageY - 10) + 'px');
+                })
+                .on('mouseout', () => {
+                    this.tooltip.style('opacity', 0);
+                })
+                .on('click', (event, d) => {
+                    // Selecting a region from the overlay
+                    if (d.properties && d.properties.gdlcode) selectRegion(d.properties.gdlcode);
+                });
+        }
     }
     
     resize() {
@@ -422,21 +517,95 @@ function rewindRing(ring, reverse) {
 
 // Load and process data
 Promise.all([
-    d3.json(geojsonUrl),
-    d3.csv(csvUrl)
-]).then(([geojson, csvRows]) => {
+    d3.json(worldGeojsonUrl),
+    d3.csv(hdrCsvUrl),
+    d3.json(regionGeojsonUrl),
+    d3.csv(subnationalCsvUrl)
+]).then(([worldGeojson, hdrRows, regionGeojson, subnationalRows]) => {
     // Rewind features to fix polygon winding order (important for proper rendering)
-    const fixedFeatures = geojson.features.map(feature => rewindFeature(feature, true));
-    geojsonData = {
-        type: 'FeatureCollection',
-        features: fixedFeatures
-    };
-    rawCsvData = csvRows; // Store raw CSV data for horizon chart
-    
-    // Process CSV data
-    const processedRows = csvRows.map(row => ({
+    const fixedWorld = worldGeojson.features.map(f => rewindFeature(f, true));
+    const fixedRegions = regionGeojson.features.map(f => rewindFeature(f, true));
+
+    geojsonDataWorld = { type: 'FeatureCollection', features: fixedWorld };
+    geojsonDataRegions = { type: 'FeatureCollection', features: fixedRegions };
+    // Start with world map
+    geojsonData = geojsonDataWorld;
+
+    // Store raw CSVs
+    rawNationalCsv = hdrRows;
+    rawRegionalCsv = subnationalRows;
+
+    // Process national HDR CSV to build nationalLookup and nationalTimeSeries
+    const processedNational = hdrRows.map(row => ({
+        iso3: (row.iso3 || '').toUpperCase(),
+        country: row.country || '',
+        year: parseInt(row.year, 10),
+        hdi: safeValue(row.hdi),
+        life_expectancy: toNumber(row.life_expectancy),
+        expec_yr_school: toNumber(row.expec_yr_school),
+        mean_yr_school: toNumber(row.mean_yr_school),
+        gross_inc_percap: toNumber(row.gross_inc_percap)
+    }));
+
+    nationalLookup = {};
+    processedNational.forEach(r => {
+        if (!nationalLookup[r.iso3]) nationalLookup[r.iso3] = {};
+
+        // Compute component indexes (approx. UN method bounds)
+        let healthIndex = null;
+        if (typeof r.life_expectancy === 'number' && !isNaN(r.life_expectancy)) {
+            healthIndex = (r.life_expectancy - 20) / (85 - 20);
+            healthIndex = Math.max(0, Math.min(1, healthIndex));
+        }
+
+        let edIndex = null;
+        const eys = r.expec_yr_school;
+        const mys = r.mean_yr_school;
+        if (typeof eys === 'number' && !isNaN(eys) && typeof mys === 'number' && !isNaN(mys)) {
+            const eysIndex = Math.max(0, Math.min(1, eys / 18));
+            const mysIndex = Math.max(0, Math.min(1, mys / 15));
+            edIndex = (eysIndex + mysIndex) / 2;
+        }
+
+        let incIndex = null;
+        if (typeof r.gross_inc_percap === 'number' && !isNaN(r.gross_inc_percap) && r.gross_inc_percap > 0) {
+            const ln = Math.log;
+            const value = r.gross_inc_percap;
+            const minV = 100; const maxV = 75000;
+            incIndex = (ln(value) - ln(minV)) / (ln(maxV) - ln(minV));
+            incIndex = Math.max(0, Math.min(1, incIndex));
+        }
+
+        nationalLookup[r.iso3][r.year] = {
+            hdi: r.hdi,
+            healthindex: healthIndex,
+            edindex: edIndex,
+            incindex: incIndex,
+            country: r.country
+        };
+    });
+
+    // Build nationalTimeSeries
+    nationalTimeSeries = {};
+    Object.keys(nationalLookup).forEach(iso3 => {
+        const yearsKeys = Object.keys(nationalLookup[iso3]).map(y => parseInt(y, 10)).sort((a,b)=>a-b);
+        if (yearsKeys.length) {
+            nationalTimeSeries[iso3] = {
+                years: yearsKeys,
+                shdi: yearsKeys.map(y => nationalLookup[iso3][y].hdi),
+                hdi: yearsKeys.map(y => nationalLookup[iso3][y].hdi),
+                healthindex: yearsKeys.map(y => nationalLookup[iso3][y].healthindex),
+                edindex: yearsKeys.map(y => nationalLookup[iso3][y].edindex),
+                incindex: yearsKeys.map(y => nationalLookup[iso3][y].incindex),
+                country: nationalLookup[iso3][yearsKeys[0]] ? nationalLookup[iso3][yearsKeys[0]].country : ''
+            };
+        }
+    });
+
+    // Process regional CSV (subnational) as before to populate dataLookup/timeSeries
+    const processedRows = subnationalRows.map(row => ({
         gdlcode: row.gdlcode,
-        year: parseInt(row.year),
+        year: parseInt(row.year, 10),
         shdi: safeValue(row.shdi),
         healthindex: safeValue(row.healthindex),
         edindex: safeValue(row.edindex),
@@ -444,17 +613,14 @@ Promise.all([
         region: row.region || '',
         country: row.country || ''
     }));
-    
-    // Get available years
-    years = [...new Set(processedRows.map(r => r.year))].filter(y => !isNaN(y)).sort((a, b) => a - b);
-    currentYear = years[years.length - 1]; // Default to latest year
-    
-    // Create data lookup: {gdlcode: {year: {shdi, healthindex, edindex, incindex, region, country}}}
+
+    // Get available years from national data (use national years for the global slider)
+    years = [...new Set(processedNational.map(r => r.year))].filter(y => !isNaN(y)).sort((a, b) => a - b);
+    currentYear = years[years.length - 1];
+
     dataLookup = {};
     processedRows.forEach(row => {
-        if (!dataLookup[row.gdlcode]) {
-            dataLookup[row.gdlcode] = {};
-        }
+        if (!dataLookup[row.gdlcode]) dataLookup[row.gdlcode] = {};
         dataLookup[row.gdlcode][row.year] = {
             shdi: row.shdi,
             healthindex: row.healthindex,
@@ -464,8 +630,7 @@ Promise.all([
             country: row.country
         };
     });
-    
-    // Create time series data
+
     timeSeries = {};
     Object.keys(dataLookup).forEach(gdlcode => {
         const yearKeys = Object.keys(dataLookup[gdlcode]).map(y => parseInt(y)).sort((a, b) => a - b);
@@ -482,16 +647,18 @@ Promise.all([
             };
         }
     });
-    
+
     // Update UI
     document.getElementById('loading').style.display = 'none';
-    document.getElementById('year-slider').min = years[0];
-    document.getElementById('year-slider').max = years[years.length - 1];
-    document.getElementById('year-slider').value = currentYear;
+    if (years.length) {
+        document.getElementById('year-slider').min = years[0];
+        document.getElementById('year-slider').max = years[years.length - 1];
+        document.getElementById('year-slider').value = currentYear;
+        document.getElementById('year-display').textContent = currentYear;
+    }
     document.getElementById('year-slider').disabled = false;
-    document.getElementById('year-display').textContent = currentYear;
     document.getElementById('scale-toggle').disabled = false;
-    
+
     // Initialize maps
     initMaps();
 }).catch(err => {
@@ -514,6 +681,18 @@ function getMapCenter() {
     const centerLon = (bounds[0][0] + bounds[1][0]) / 2;
     const centerLat = (bounds[0][1] + bounds[1][1]) / 2;
     return [centerLat, centerLon];
+}
+
+// Helper to find an ISO3 code from a feature's properties (tries common property names)
+function findIsoFromProps(props) {
+    if (!props) return null;
+    const candidates = ['iso_a3','ISO_A3','ADM0_A3','iso3','ISO3','ISO_A3_EH','iso_code','ISO_A3','ISO'];
+    for (const k of candidates) {
+        if (props[k]) return String(props[k]).toUpperCase();
+    }
+    // Try some name fields as last resort (not ideal)
+    if (props['geounit'] && props['geounit_iso']) return String(props['geounit_iso']).toUpperCase();
+    return null;
 }
 
 // ==================== COLOR AND STYLING FUNCTIONS ====================
@@ -1002,6 +1181,20 @@ function updateMaps() {
 // Function to select a region
 function selectRegion(gdlcode) {
     selectedGdlcode = gdlcode;
+    // Ensure we know which country this region belongs to
+    selectedCountryIso = null;
+    if (geojsonDataRegions && Array.isArray(geojsonDataRegions.features)) {
+        const f = geojsonDataRegions.features.find(ff => ff.properties && ff.properties.gdlcode === gdlcode);
+        if (f && f.properties && f.properties.iso_code) selectedCountryIso = String(f.properties.iso_code).toUpperCase();
+    }
+    // Keep world as the base dataset but overlay regional features for the selected country
+    geojsonData = geojsonDataWorld;
+    if (selectedCountryIso) {
+        const feats = geojsonDataRegions.features.filter(ff => ff.properties && String(ff.properties.iso_code).toUpperCase() === selectedCountryIso);
+        overlayRegionFeatures = feats;
+    } else {
+        overlayRegionFeatures = null;
+    }
     if (currentVizMode === 'components') {
         updateMaps();
     } else if (currentVizMode === 'difference') {
@@ -1012,15 +1205,47 @@ function selectRegion(gdlcode) {
     updateChart();
 }
 
+// Select a country by ISO3 code: show national horizon and display regional SHDI inside country
+function selectCountry(iso3) {
+    if (!iso3) return;
+    selectedCountryIso = String(iso3).toUpperCase();
+    selectedGdlcode = null;
+    // Keep world as the base dataset and set overlayRegionFeatures to regional features for this country (if available)
+    geojsonData = geojsonDataWorld;
+    if (geojsonDataRegions) {
+        const feats = geojsonDataRegions.features.filter(f => f.properties && String(f.properties.iso_code).toUpperCase() === selectedCountryIso);
+        overlayRegionFeatures = feats.length > 0 ? feats : null;
+    } else {
+        overlayRegionFeatures = null;
+    }
+
+    // Update maps and legends
+    if (currentVizMode === 'components') {
+        updateMaps();
+    } else if (currentVizMode === 'difference') {
+        updateDifferenceMaps();
+    } else {
+        updateBottleneckMap();
+    }
+
+    // Update chart to show national HDI time series
+    updateChart();
+}
+
 // ==================== CHART FUNCTIONS ====================
 
 // Function to update chart data (when chart already exists)
 function updateChartData() {
-    if (!selectedGdlcode || !timeSeries[selectedGdlcode] || !chart) {
+    if (!chart) return;
+
+    let data = null;
+    if (selectedGdlcode && timeSeries[selectedGdlcode]) {
+        data = timeSeries[selectedGdlcode];
+    } else if (selectedCountryIso && nationalTimeSeries[selectedCountryIso]) {
+        data = nationalTimeSeries[selectedCountryIso];
+    } else {
         return;
     }
-    
-    const data = timeSeries[selectedGdlcode];
     
     if (!data || !data.years || data.years.length === 0) {
         return;
@@ -1151,7 +1376,18 @@ function updateChartData() {
 
 // Function to update chart
 function updateChart() {
-    if (!selectedGdlcode || !timeSeries[selectedGdlcode]) {
+    // Determine whether a region or a country is selected and pick the appropriate timeseries
+    let data = null;
+    let isNational = false;
+
+    if (selectedGdlcode && timeSeries[selectedGdlcode]) {
+        data = timeSeries[selectedGdlcode];
+    } else if (selectedCountryIso && nationalTimeSeries[selectedCountryIso]) {
+        data = nationalTimeSeries[selectedCountryIso];
+        isNational = true;
+    }
+
+    if (!data || !data.years || data.years.length === 0) {
         document.getElementById('region-info').style.display = 'none';
         document.getElementById('chart-container').style.display = 'none';
         document.getElementById('horizon-chart-container').style.display = 'none';
@@ -1162,16 +1398,15 @@ function updateChart() {
         }
         return;
     }
-    
-    const data = timeSeries[selectedGdlcode];
-    
-    if (!data || !data.years || data.years.length === 0) {
-        console.error('Invalid time series data');
-        return;
+
+    // Populate header info: for national selection show country name
+    if (isNational) {
+        document.getElementById('region-name').textContent = data.country || selectedCountryIso;
+        document.getElementById('region-country').textContent = '';
+    } else {
+        document.getElementById('region-name').textContent = data.region || 'Unknown';
+        document.getElementById('region-country').textContent = data.country || 'Unknown';
     }
-    
-    document.getElementById('region-name').textContent = data.region || 'Unknown';
-    document.getElementById('region-country').textContent = data.country || 'Unknown';
     document.getElementById('region-info').style.display = 'block';
     document.getElementById('no-selection').style.display = 'none';
     
@@ -1420,17 +1655,34 @@ const horizonTickEveryYears = 5;
 
 // Function to update horizon chart
 function updateHorizonChart() {
-    if (!selectedGdlcode || !timeSeries[selectedGdlcode] || !rawCsvData) {
+    // Determine source rows: regional if a region selected, national if a country selected
+    let isNational = false;
+    let sourceRows = null;
+    let data = null;
+
+    if (selectedGdlcode && timeSeries[selectedGdlcode]) {
+        // regional selection
+        data = timeSeries[selectedGdlcode];
+        if (!rawRegionalCsv) {
+            document.getElementById('horizon-chart-container').style.display = 'none';
+            return;
+        }
+        sourceRows = rawRegionalCsv.filter(r => r.gdlcode === selectedGdlcode);
+    } else if (selectedCountryIso && nationalTimeSeries[selectedCountryIso]) {
+        // national selection
+        isNational = true;
+        data = nationalTimeSeries[selectedCountryIso];
+        if (!rawNationalCsv) {
+            document.getElementById('horizon-chart-container').style.display = 'none';
+            return;
+        }
+        sourceRows = rawNationalCsv.filter(r => (r.iso3 || '').toUpperCase() === selectedCountryIso);
+    } else {
         document.getElementById('horizon-chart-container').style.display = 'none';
         return;
     }
-    
-    const data = timeSeries[selectedGdlcode];
-    
-    // Filter CSV rows by gdlcode (not region name, as region names may not be unique)
-    const regionRows = rawCsvData.filter(r => r.gdlcode === selectedGdlcode);
-    
-    if (regionRows.length === 0) {
+
+    if (!sourceRows || sourceRows.length === 0) {
         document.getElementById('horizon-chart-container').style.display = 'none';
         return;
     }
@@ -1442,19 +1694,42 @@ function updateHorizonChart() {
     d3.select("#horizon-legend").html("");
     
     // Parse rows, keep raw strings and numeric values separately
-    const parsed = regionRows
+    const parsed = sourceRows
         .map(r => {
+            // Determine year field (regional CSV uses 'year', national CSV uses 'year' too)
             const year = parseInt(r.year ?? r.Year ?? r.YEAR, 10);
             const date = Number.isFinite(year) ? new Date(Date.UTC(year, 0, 1)) : null;
             const obj = { date, raw: {}, num: {} };
+
             for (const f of horizonFactors) {
-                const rawCell = (r[f] === undefined || r[f] === null) ? "" : String(r[f]);
+                let rawCell = "";
+                if (!isNational) {
+                    // regional data expected to have direct factor columns
+                    rawCell = (r[f] === undefined || r[f] === null) ? "" : String(r[f]);
+                } else {
+                    // national CSV uses different column names - map them
+                    if (f === 'shdi' || f === 'hdi') rawCell = (r.hdi === undefined || r.hdi === null) ? "" : String(r.hdi);
+                    else if (f === 'healthindex') rawCell = (r.life_expectancy === undefined || r.life_expectancy === null) ? "" : String(r.life_expectancy);
+                    else if (f === 'edindex') rawCell = (r.expec_yr_school === undefined || r.expec_yr_school === null) ? "" : String(r.expec_yr_school);
+                    else if (f === 'incindex') rawCell = (r.gross_inc_percap === undefined || r.gross_inc_percap === null) ? "" : String(r.gross_inc_percap);
+                    else if (f === 'lifexp') rawCell = (r.life_expectancy === undefined || r.life_expectancy === null) ? "" : String(r.life_expectancy);
+                    else if (f === 'esch') rawCell = (r.expec_yr_school === undefined || r.expec_yr_school === null) ? "" : String(r.expec_yr_school);
+                    else if (f === 'msch') rawCell = (r.mean_yr_school === undefined || r.mean_yr_school === null) ? "" : String(r.mean_yr_school);
+                    else if (f === 'lgnic') rawCell = (r.gross_inc_percap === undefined || r.gross_inc_percap === null) ? "" : String(r.gross_inc_percap);
+                    else rawCell = (r[f] === undefined || r[f] === null) ? "" : String(r[f]);
+                }
+
                 obj.raw[f] = rawCell;
-                // Use horizon chart's toNumber (returns NaN instead of null)
                 const str = String(rawCell).trim();
                 const n = str === "" ? NaN : +str.replace(/\u00A0/g, "");
-                obj.num[f] = isNaN(n) ? NaN : n;
+                // For lgnic we want log value when available
+                if (f === 'lgnic' && isNational && !isNaN(n) && n > 0) {
+                    obj.num[f] = Math.log(n);
+                } else {
+                    obj.num[f] = isNaN(n) ? NaN : n;
+                }
             }
+
             return obj;
         })
         .sort((a,b) => (a.date && b.date) ? a.date - b.date : 0);
