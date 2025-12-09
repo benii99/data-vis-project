@@ -59,18 +59,271 @@ let chart = null;
 let useRelativeScale = true;
 let currentVizMode = 'components';
 
-// Store all map instances
+// Store all map instances (D3-based)
 const maps = [];
 const diffMaps = [];
 let bottleneckMap = null;
 let isSyncing = false;
+
+// D3 Map class to replace Leaflet maps
+class D3Map {
+    constructor(containerId) {
+        this.containerId = containerId;
+        this.container = d3.select(`#${containerId}`);
+        this.width = 0;
+        this.height = 0;
+        this.projection = d3.geoMercator();
+        this.path = d3.geoPath().projection(this.projection);
+        this.zoom = d3.zoom();
+        this.svg = null;
+        this.g = null;
+        this.features = null;
+        this.tooltip = null;
+        this.k = 1; // zoom scale
+        this.x = 0; // translate x
+        this.y = 0; // translate y
+        
+        this.init();
+    }
+    
+    init() {
+        // Clear container
+        this.container.selectAll("*").remove();
+        
+        // Update size first to get dimensions
+        this.updateSize();
+        
+        // Create SVG
+        this.svg = this.container.append("svg")
+            .attr("width", "100%")
+            .attr("height", "100%")
+            .style("cursor", "grab");
+        
+        // Create main group for map features
+        this.g = this.svg.append("g");
+        
+        // Create tooltip element (only once, reuse if exists)
+        let tooltip = d3.select("body").select(".d3-map-tooltip");
+        if (tooltip.empty()) {
+            this.tooltip = d3.select("body").append("div")
+                .attr("class", "d3-map-tooltip")
+                .style("opacity", 0)
+                .style("position", "absolute")
+                .style("background", "rgba(0, 0, 0, 0.8)")
+                .style("color", "white")
+                .style("padding", "8px")
+                .style("border-radius", "4px")
+                .style("pointer-events", "none")
+                .style("font-size", "12px")
+                .style("z-index", "1000");
+        } else {
+            this.tooltip = tooltip;
+        }
+        
+        // Set up zoom behavior
+        this.zoom
+            .scaleExtent([0.5, 8])
+            .on("zoom", (event) => {
+                if (isSyncing) return;
+                this.k = event.transform.k;
+                this.x = event.transform.x;
+                this.y = event.transform.y;
+                this.g.attr("transform", event.transform);
+            })
+            .on("end", () => {
+                if (!isSyncing && this.syncCallback) {
+                    this.syncCallback(this);
+                }
+            });
+        
+        this.svg.call(this.zoom);
+        
+        // Fit bounds to initialize projection
+        this.fitBounds();
+    }
+    
+    updateSize() {
+        const rect = this.container.node().getBoundingClientRect();
+        this.width = rect.width;
+        this.height = rect.height;
+        
+        this.svg.attr("viewBox", `0 0 ${this.width} ${this.height}`);
+        
+        // Update projection to fit bounds
+        this.fitBounds();
+    }
+    
+    fitBounds() {
+        if (!geojsonData || this.width === 0 || this.height === 0) return;
+        
+        // Calculate bounds using a temporary projection
+        const tempProjection = d3.geoMercator().scale(1).translate([0, 0]);
+        const tempPath = d3.geoPath().projection(tempProjection);
+        const bounds = tempPath.bounds(geojsonData);
+        
+        if (!bounds || bounds.length < 2) return;
+        
+        const dx = bounds[1][0] - bounds[0][0];
+        const dy = bounds[1][1] - bounds[0][1];
+        const x = (bounds[0][0] + bounds[1][0]) / 2;
+        const y = (bounds[0][1] + bounds[1][1]) / 2;
+        const scale = Math.min(8, 0.95 / Math.max(dx / this.width, dy / this.height));
+        const translate = [this.width / 2 - scale * x, this.height / 2 - scale * y];
+        
+        // Set base projection (this stays fixed)
+        this.projection.scale(scale).translate(translate);
+        this.path = d3.geoPath().projection(this.projection);
+        
+        // Reset zoom transform to identity (no additional transform)
+        const identity = d3.zoomIdentity;
+        this.svg.call(this.zoom.transform, identity);
+        this.k = 1;
+        this.x = 0;
+        this.y = 0;
+        this.g.attr("transform", identity);
+    }
+    
+    setView(center, zoom) {
+        if (!center || this.width === 0 || this.height === 0) return;
+        
+        // Ensure projection is set up
+        if (this.projection.scale() === 1) {
+            this.fitBounds();
+        }
+        
+        // Get current projection point for the center
+        const point = this.projection(center);
+        if (!point) return;
+        
+        // Calculate zoom level
+        const zoomLevel = zoom !== undefined ? zoom : 2;
+        const scale = Math.pow(2, zoomLevel);
+        
+        // Calculate transform to center on the point at the desired zoom
+        const translate = [this.width / 2 - scale * point[0], this.height / 2 - scale * point[1]];
+        
+        const transform = d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale);
+        this.svg.call(this.zoom.transform, transform);
+        this.k = transform.k;
+        this.x = transform.x;
+        this.y = transform.y;
+    }
+    
+    getCenter() {
+        if (this.width === 0 || this.height === 0) return [20, 0];
+        const point = this.projection.invert([(this.width / 2 - this.x) / this.k, (this.height / 2 - this.y) / this.k]);
+        return point || [20, 0];
+    }
+    
+    getZoom() {
+        return Math.log2(this.k);
+    }
+    
+    syncFrom(sourceMap) {
+        if (isSyncing || !sourceMap) return;
+        isSyncing = true;
+        
+        const center = sourceMap.getCenter();
+        const zoom = sourceMap.getZoom();
+        this.setView(center, zoom);
+        
+        setTimeout(() => { isSyncing = false; }, 50);
+    }
+    
+    renderFeatures(styleFunction, onEachFeature) {
+        if (!geojsonData || !this.g) return;
+        
+        // Ensure projection is initialized
+        if (this.width > 0 && this.height > 0 && this.projection.scale() === 1) {
+            this.fitBounds();
+        }
+        
+        // Remove existing features
+        this.g.selectAll("path.feature").remove();
+        
+        // Update path generator
+        this.path = d3.geoPath().projection(this.projection);
+        
+        // Add features
+        this.features = this.g.selectAll("path.feature")
+            .data(geojsonData.features)
+            .enter()
+            .append("path")
+            .attr("class", "feature")
+            .attr("d", this.path)
+            .attr("fill", (d) => {
+                const style = styleFunction(d);
+                return style.fillColor || style.fill || "#ccc";
+            })
+            .attr("stroke", (d) => {
+                const style = styleFunction(d);
+                return style.color || style.stroke || "#333";
+            })
+            .attr("stroke-width", (d) => {
+                const style = styleFunction(d);
+                return style.weight || style.strokeWidth || 1;
+            })
+            .attr("fill-opacity", (d) => {
+                const style = styleFunction(d);
+                return style.fillOpacity !== undefined ? style.fillOpacity : 0.7;
+            })
+            .attr("stroke-opacity", (d) => {
+                const style = styleFunction(d);
+                return style.opacity !== undefined ? style.opacity : 1;
+            })
+            .style("cursor", "pointer")
+            .on("mouseover", (event, d) => {
+                if (onEachFeature) {
+                    const tooltipData = onEachFeature(d);
+                    if (tooltipData && tooltipData.tooltip) {
+                        this.tooltip
+                            .style("opacity", 1)
+                            .html(tooltipData.tooltip);
+                    }
+                }
+            })
+            .on("mousemove", (event) => {
+                this.tooltip
+                    .style("left", (event.pageX + 10) + "px")
+                    .style("top", (event.pageY - 10) + "px");
+            })
+            .on("mouseout", () => {
+                this.tooltip.style("opacity", 0);
+            })
+            .on("click", (event, d) => {
+                event.stopPropagation();
+                if (onEachFeature) {
+                    const clickData = onEachFeature(d);
+                    if (clickData && clickData.onClick) {
+                        clickData.onClick();
+                    }
+                }
+            });
+    }
+    
+    invalidateSize() {
+        const oldWidth = this.width;
+        const oldHeight = this.height;
+        this.updateSize();
+        
+        // If size changed significantly, re-fit bounds
+        if (Math.abs(oldWidth - this.width) > 10 || Math.abs(oldHeight - this.height) > 10) {
+            this.fitBounds();
+        }
+        
+        // Re-render features if we have style functions
+        if (this.currentStyleFunction && this.currentOnEachFeature) {
+            this.renderFeatures(this.currentStyleFunction, this.currentOnEachFeature);
+        }
+    }
+}
 
 // Component colors
 const COMPONENT_COLORS = {
     health: '#D81B60',
     education: '#1E88E5',
     income: '#FFC107',
-    missing: '#E0E0E0'
+    missing: '#cccccc'
 };
 
 // Map types and their legend IDs
@@ -163,13 +416,22 @@ Promise.all([
     document.getElementById('loading').textContent = 'Error loading data. Please check that the server is running and data files are accessible.';
 });
 
-// Calculate map center from bounds
+// Calculate map center from GeoJSON
 function getMapCenter() {
     if (!geojsonData) return [20, 0];
-    const bounds = L.geoJSON(geojsonData).getBounds();
-    const centerLat = (bounds.getNorth() + bounds.getSouth()) / 2;
-    const centerLon = (bounds.getEast() + bounds.getWest()) / 2;
-    return [centerLat, centerLon];
+    
+    // Use a temporary projection to calculate center
+    const tempProjection = d3.geoMercator().scale(1).translate([0, 0]);
+    const tempPath = d3.geoPath().projection(tempProjection);
+    const bounds = tempPath.bounds(geojsonData);
+    
+    if (!bounds || bounds.length < 2) return [20, 0];
+    
+    const centerX = (bounds[0][0] + bounds[1][0]) / 2;
+    const centerY = (bounds[0][1] + bounds[1][1]) / 2;
+    const center = tempProjection.invert([centerX, centerY]);
+    
+    return center || [20, 0];
 }
 
 // Helper function to interpolate between two colors
@@ -459,42 +721,40 @@ function createDifferenceStyleFunction(diffType) {
 // Update difference maps
 function updateDifferenceMaps() {
     diffMaps.forEach((map, index) => {
+        if (!map) return;
+        
         const diffType = index === 0 ? 'diff-bottleneck' : 
                        index === 1 ? 'diff-health' : 
                        index === 2 ? 'diff-education' : 'diff-income';
         
-        map.eachLayer(layer => {
-            if (layer instanceof L.GeoJSON) {
-                map.removeLayer(layer);
-            }
-        });
+        const styleFunc = createDifferenceStyleFunction(diffType);
         
-        const geoJsonLayer = L.geoJSON(geojsonData, {
-            style: createDifferenceStyleFunction(diffType),
-            onEachFeature: function(feature, layer) {
-                const gdlcode = feature.properties.gdlcode;
-                const diffData = getDifferenceData(gdlcode, currentYear, diffType);
-                const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
-                
-                const regionName = yearData ? yearData.region : feature.properties.gdlcode;
-                let tooltipText = regionName;
-                
-                if (diffData.value !== null) {
-                    const diffLabel = diffType === 'diff-bottleneck' ? 'HDI - Lowest' :
-                                    diffType === 'diff-health' ? 'HDI - Health' :
-                                    diffType === 'diff-education' ? 'HDI - Education' : 'HDI - Income';
-                    tooltipText += `<br>${diffLabel}: ${diffData.value.toFixed(3)}`;
-                } else {
-                    tooltipText += '<br>No data';
-                }
-                
-                layer.bindTooltip(tooltipText, {permanent: false, direction: 'top'});
-                
-                layer.on('click', function() {
-                    selectRegion(gdlcode);
-                });
+        const onEachFeature = (feature) => {
+            const gdlcode = feature.properties.gdlcode;
+            const diffData = getDifferenceData(gdlcode, currentYear, diffType);
+            const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+            
+            const regionName = yearData ? yearData.region : feature.properties.gdlcode;
+            let tooltipText = regionName;
+            
+            if (diffData.value !== null) {
+                const diffLabel = diffType === 'diff-bottleneck' ? 'HDI - Lowest' :
+                                diffType === 'diff-health' ? 'HDI - Health' :
+                                diffType === 'diff-education' ? 'HDI - Education' : 'HDI - Income';
+                tooltipText += `<br>${diffLabel}: ${diffData.value.toFixed(3)}`;
+            } else {
+                tooltipText += '<br>No data';
             }
-        }).addTo(map);
+            
+            return {
+                tooltip: tooltipText,
+                onClick: () => selectRegion(gdlcode)
+            };
+        };
+        
+        map.currentStyleFunction = styleFunc;
+        map.currentOnEachFeature = onEachFeature;
+        map.renderFeatures(styleFunc, onEachFeature);
     });
     
     updateDifferenceLegends();
@@ -569,36 +829,32 @@ function createBottleneckStyleFunction() {
 function updateBottleneckMap() {
     if (!bottleneckMap) return;
     
-    bottleneckMap.eachLayer(layer => {
-        if (layer instanceof L.GeoJSON) {
-            bottleneckMap.removeLayer(layer);
-        }
-    });
+    const styleFunc = createBottleneckStyleFunction();
     
-    const geoJsonLayer = L.geoJSON(geojsonData, {
-        style: createBottleneckStyleFunction(),
-        onEachFeature: function(feature, layer) {
-            const gdlcode = feature.properties.gdlcode;
-            const bottleneckData = getBottleneckData(gdlcode, currentYear);
-            const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
-            
-            const regionName = yearData ? yearData.region : feature.properties.gdlcode;
-            let tooltipText = regionName;
-            
-            if (bottleneckData.component) {
-                const componentName = bottleneckData.component.charAt(0).toUpperCase() + bottleneckData.component.slice(1);
-                tooltipText += `<br>Bottleneck: ${componentName}<br>Value: ${bottleneckData.value.toFixed(3)}`;
-            } else {
-                tooltipText += '<br>No data';
-            }
-            
-            layer.bindTooltip(tooltipText, {permanent: false, direction: 'top'});
-            
-            layer.on('click', function() {
-                selectRegion(gdlcode);
-            });
+    const onEachFeature = (feature) => {
+        const gdlcode = feature.properties.gdlcode;
+        const bottleneckData = getBottleneckData(gdlcode, currentYear);
+        const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+        
+        const regionName = yearData ? yearData.region : feature.properties.gdlcode;
+        let tooltipText = regionName;
+        
+        if (bottleneckData.component) {
+            const componentName = bottleneckData.component.charAt(0).toUpperCase() + bottleneckData.component.slice(1);
+            tooltipText += `<br>Bottleneck: ${componentName}<br>Value: ${bottleneckData.value.toFixed(3)}`;
+        } else {
+            tooltipText += '<br>No data';
         }
-    }).addTo(bottleneckMap);
+        
+        return {
+            tooltip: tooltipText,
+            onClick: () => selectRegion(gdlcode)
+        };
+    };
+    
+    bottleneckMap.currentStyleFunction = styleFunc;
+    bottleneckMap.currentOnEachFeature = onEachFeature;
+    bottleneckMap.renderFeatures(styleFunc, onEachFeature);
 }
 
 // Update bottleneck legend
@@ -712,15 +968,15 @@ function createStyleFunction(mapType) {
 
 // Function to sync all maps
 function syncMaps(sourceMap, targetMaps) {
-    if (isSyncing) return;
+    if (isSyncing || !sourceMap) return;
     isSyncing = true;
     
     const center = sourceMap.getCenter();
     const zoom = sourceMap.getZoom();
     
     targetMaps.forEach(map => {
-        if (map !== sourceMap) {
-            map.setView(center, zoom, {animate: false});
+        if (map && map !== sourceMap) {
+            map.setView(center, zoom);
         }
     });
     
@@ -730,52 +986,50 @@ function syncMaps(sourceMap, targetMaps) {
 // Function to update all maps
 function updateMaps() {
     maps.forEach((map, index) => {
+        if (!map) return;
+        
         const mapType = index === 0 ? 'shdi' : 
                        index === 1 ? 'healthindex' : 
                        index === 2 ? 'edindex' : 'incindex';
         
-        map.eachLayer(layer => {
-            if (layer instanceof L.GeoJSON) {
-                map.removeLayer(layer);
-            }
-        });
+        const styleFunc = createStyleFunction(mapType);
         
-        const geoJsonLayer = L.geoJSON(geojsonData, {
-            style: createStyleFunction(mapType),
-            onEachFeature: function(feature, layer) {
-                const gdlcode = feature.properties.gdlcode;
-                const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
-                
-                let value = null;
-                let label = mapType.toUpperCase();
-                if (yearData) {
-                    if (mapType === 'shdi') {
-                        value = yearData.shdi;
-                        label = 'HDI';
-                    } else if (mapType === 'healthindex') {
-                        value = yearData.healthindex;
-                        label = 'Health';
-                    } else if (mapType === 'edindex') {
-                        value = yearData.edindex;
-                        label = 'Education';
-                    } else if (mapType === 'incindex') {
-                        value = yearData.incindex;
-                        label = 'Income';
-                    }
+        const onEachFeature = (feature) => {
+            const gdlcode = feature.properties.gdlcode;
+            const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+            
+            let value = null;
+            let label = mapType.toUpperCase();
+            if (yearData) {
+                if (mapType === 'shdi') {
+                    value = yearData.shdi;
+                    label = 'HDI';
+                } else if (mapType === 'healthindex') {
+                    value = yearData.healthindex;
+                    label = 'Health';
+                } else if (mapType === 'edindex') {
+                    value = yearData.edindex;
+                    label = 'Education';
+                } else if (mapType === 'incindex') {
+                    value = yearData.incindex;
+                    label = 'Income';
                 }
-                
-                const regionName = yearData ? yearData.region : feature.properties.gdlcode;
-                const tooltipText = value !== null 
-                    ? `${regionName}<br>${label}: ${value.toFixed(3)}`
-                    : `${regionName}<br>No data`;
-                
-                layer.bindTooltip(tooltipText, {permanent: false, direction: 'top'});
-                
-                layer.on('click', function() {
-                    selectRegion(gdlcode);
-                });
             }
-        }).addTo(map);
+            
+            const regionName = yearData ? yearData.region : feature.properties.gdlcode;
+            const tooltipText = value !== null 
+                ? `${regionName}<br>${label}: ${value.toFixed(3)}`
+                : `${regionName}<br>No data`;
+            
+            return {
+                tooltip: tooltipText,
+                onClick: () => selectRegion(gdlcode)
+            };
+        };
+        
+        map.currentStyleFunction = styleFunc;
+        map.currentOnEachFeature = onEachFeature;
+        map.renderFeatures(styleFunc, onEachFeature);
     });
     
     updateAllLegends();
@@ -1581,68 +1835,53 @@ function initMaps() {
     setTimeout(() => {
         const [centerLat, centerLon] = getMapCenter();
         
-        const mapTop = L.map('map-top', {
-            zoomControl: true,
-            attributionControl: false
-        }).setView([centerLat, centerLon], 2);
+        // Initialize main component maps
+        const mapTop = new D3Map('map-top');
+        mapTop.syncCallback = (sourceMap) => syncMaps(sourceMap, maps);
         maps.push(mapTop);
         
         const mapIds = ['map-bottom-1', 'map-bottom-2', 'map-bottom-3'];
         mapIds.forEach(id => {
-            const map = L.map(id, {
-                zoomControl: true,
-                attributionControl: false
-            }).setView([centerLat, centerLon], 2);
+            const map = new D3Map(id);
+            map.syncCallback = (sourceMap) => syncMaps(sourceMap, maps);
             maps.push(map);
         });
         
-        const diffMapTop = L.map('map-diff-top', {
-            zoomControl: true,
-            attributionControl: false
-        }).setView([centerLat, centerLon], 2);
+        // Initialize difference maps
+        const diffMapTop = new D3Map('map-diff-top');
+        diffMapTop.syncCallback = (sourceMap) => syncMaps(sourceMap, diffMaps);
         diffMaps.push(diffMapTop);
         
         const diffMapIds = ['map-diff-bottom-1', 'map-diff-bottom-2', 'map-diff-bottom-3'];
         diffMapIds.forEach(id => {
-            const map = L.map(id, {
-                zoomControl: true,
-                attributionControl: false
-            }).setView([centerLat, centerLon], 2);
+            const map = new D3Map(id);
+            map.syncCallback = (sourceMap) => syncMaps(sourceMap, diffMaps);
             diffMaps.push(map);
         });
         
-        diffMaps.forEach((map) => {
-            map.on('moveend', function() {
-                syncMaps(map, diffMaps);
-            });
-            map.on('zoomend', function() {
-                syncMaps(map, diffMaps);
-            });
-        });
+        // Initialize bottleneck map
+        bottleneckMap = new D3Map('map-bottleneck');
         
-        bottleneckMap = L.map('map-bottleneck', {
-            zoomControl: true,
-            attributionControl: false
-        }).setView([centerLat, centerLon], 2);
-        
-        maps.forEach((map) => {
-            map.on('moveend', function() {
-                syncMaps(map, maps);
-            });
-            map.on('zoomend', function() {
-                syncMaps(map, maps);
-            });
-        });
-        
+        // Set initial view for all maps
         setTimeout(() => {
             maps.forEach(map => {
-                if (map) map.invalidateSize();
+                if (map) {
+                    map.setView([centerLat, centerLon], 2);
+                    map.invalidateSize();
+                }
             });
             diffMaps.forEach(map => {
-                if (map) map.invalidateSize();
+                if (map) {
+                    map.setView([centerLat, centerLon], 2);
+                    map.invalidateSize();
+                }
             });
-            if (bottleneckMap) bottleneckMap.invalidateSize();
+            if (bottleneckMap) {
+                bottleneckMap.setView([centerLat, centerLon], 2);
+                bottleneckMap.invalidateSize();
+            }
             
+            // Second pass to ensure proper sizing
             setTimeout(() => {
                 maps.forEach(map => {
                     if (map) map.invalidateSize();
@@ -1651,13 +1890,14 @@ function initMaps() {
                     if (map) map.invalidateSize();
                 });
                 if (bottleneckMap) bottleneckMap.invalidateSize();
+                
+                // Initial render
+                updateMaps();
+                updateDifferenceMaps();
+                updateBottleneckMap();
+                updateBottleneckLegend();
             }, 100);
         }, 300);
-        
-        updateMaps();
-        updateDifferenceMaps();
-        updateBottleneckMap();
-        updateBottleneckLegend();
     }, 200);
 }
 

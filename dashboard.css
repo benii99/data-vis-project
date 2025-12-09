@@ -168,12 +168,32 @@ body {
     position: relative;
 }
 
-.map-top .leaflet-container,
-.map-bottom .leaflet-container,
-.map-full .leaflet-container {
+.map-top svg,
+.map-bottom svg,
+.map-full svg {
     height: 100%;
     width: 100%;
     background-color: #fafafa;
+    display: block;
+}
+
+.map-top,
+.map-bottom,
+.map-full {
+    position: relative;
+    overflow: hidden;
+}
+
+.map-top svg .feature,
+.map-bottom svg .feature,
+.map-full svg .feature {
+    transition: stroke-width 0.2s;
+}
+
+.map-top svg .feature:hover,
+.map-bottom svg .feature:hover,
+.map-full svg .feature:hover {
+    stroke-width: 2px !important;
 }
 
 .viz-container {
@@ -443,5 +463,12 @@ body {
 .horizon-legend-title {
     font-weight: 600;
     margin-bottom: 8px;
+}
+
+/* D3 Map Tooltip */
+.d3-map-tooltip {
+    pointer-events: none;
+    white-space: pre-line;
+    line-height: 1.4;
 }
 
