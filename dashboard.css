@@ -111,6 +111,47 @@ body {
 
 .year-control input[type="range"] {
     width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+}
+
+.year-control input[type="range"]::-webkit-slider-track {
+    background: #ddd;
+    border-radius: 4px;
+    height: 6px;
+}
+
+.year-control input[type="range"]::-webkit-slider-runnable-track {
+    background: #ddd;
+    border-radius: 4px;
+    height: 6px;
+}
+
+.year-control input[type="range"]::-moz-range-track {
+    background: #ddd;
+    border-radius: 4px;
+    height: 6px;
+    border: none;
+}
+
+.year-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #0066cc;
+    cursor: pointer;
+}
+
+.year-control input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #0066cc;
+    cursor: pointer;
+    border: none;
 }
 
 .year-display {
@@ -261,23 +302,23 @@ body {
 }
 
 .map-label-hdi {
-    background-color: #00aa44 !important;
-    color: white !important;
+    background-color: lightgrey !important;
+    color: black !important;
 }
 
 .map-label-health {
-    background-color: #D81B60 !important;
-    color: white !important;
+    background-color: lightgrey !important;
+    color: black !important;
 }
 
 .map-label-education {
-    background-color: #1E88E5 !important;
-    color: white !important;
+    background-color: lightgrey !important;
+    color: black !important;
 }
 
 .map-label-income {
-    background-color: #FFC107 !important;
-    color: #333 !important;
+    background-color: lightgrey !important;
+    color: black !important;
 }
 
 .region-info {

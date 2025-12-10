@@ -10,18 +10,6 @@
 </head>
 <body>
     <div class="dashboard-container">
-        <div class="sidebar">
-            <h3>Visualizations</h3>
-            <button class="viz-button active" data-viz="components" id="viz-components">HDI Component Deviation</button>
-            <div id="desc-components" class="viz-description">
-                Shows deviation from averages. At national level: HDI variance across regions. At regional level: component deviation from country average HDI.
-            </div>
-            <button class="viz-button" data-viz="values" id="viz-values">Values Visualization</button>
-            <div id="desc-values" class="viz-description hidden">
-                Shows raw HDI and component values. At national level: country HDI and average component values. At regional level: region HDI and component values.
-            </div>
-        </div>
-        
         <div class="left-panel">
             <div class="year-control">
                 <label for="year-slider">Year: <span id="year-display">Loading...</span></label>
@@ -49,28 +37,6 @@
                         <div id="map-bottom-3" class="map-bottom">
                             <div class="map-label map-label-income">Income Index</div>
                             <div id="legend-bottom-3" class="map-legend"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Values Visualization View -->
-                <div id="viz-values-container" class="viz-container">
-                    <div id="map-values-top" class="map-top">
-                        <div class="map-label map-label-hdi">HDI Value</div>
-                        <div id="legend-values-top" class="map-legend"></div>
-                    </div>
-                    <div class="maps-bottom">
-                        <div id="map-values-bottom-1" class="map-bottom">
-                            <div class="map-label map-label-health">Health Value</div>
-                            <div id="legend-values-bottom-1" class="map-legend"></div>
-                        </div>
-                        <div id="map-values-bottom-2" class="map-bottom">
-                            <div class="map-label map-label-education">Education Value</div>
-                            <div id="legend-values-bottom-2" class="map-legend"></div>
-                        </div>
-                        <div id="map-values-bottom-3" class="map-bottom">
-                            <div class="map-label map-label-income">Income Value</div>
-                            <div id="legend-values-bottom-3" class="map-legend"></div>
                         </div>
                     </div>
                 </div>
