@@ -249,15 +249,35 @@ body {
     position: absolute;
     top: 10px;
     left: 10px;
-    background-color: rgba(255, 255, 255, 0.95);
-    color: #333;
     padding: 5px 10px;
     border-radius: 4px;
     font-weight: 600;
     font-size: 12px;
     z-index: 1000;
     pointer-events: none;
-    border: 1px solid #ddd;
+    border: none;
+    background-color: rgba(255, 255, 255, 0.95);
+    color: #333;
+}
+
+.map-label-hdi {
+    background-color: #00aa44 !important;
+    color: white !important;
+}
+
+.map-label-health {
+    background-color: #D81B60 !important;
+    color: white !important;
+}
+
+.map-label-education {
+    background-color: #1E88E5 !important;
+    color: white !important;
+}
+
+.map-label-income {
+    background-color: #FFC107 !important;
+    color: #333 !important;
 }
 
 .region-info {

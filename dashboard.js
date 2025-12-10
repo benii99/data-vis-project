@@ -66,6 +66,7 @@ let nationalTimeSeries = {};
 
 let dataLookup = {}; // regional lookup keyed by gdlcode -> { year: {...} }
 let timeSeries = {}; // regional time series (by gdlcode)
+let countryComponentVariance = {}; // keyed by "iso3_year" -> { hdiVariance, healthVariance, edVariance, incVariance }
 
 let rawNationalCsv = null; // hdr_general raw CSV for horizon chart (national)
 let rawRegionalCsv = null; // subnational raw CSV for horizon chart (regional)
@@ -191,6 +192,9 @@ class D3Map {
         this.mapType = mapType || this.mapType;
         if (!this.mapType) return;
         
+        // Use neutral white background for all maps
+        this.svg.style('background-color', '#fafafa');
+        
         // Ensure projection is properly fitted
         const containerNode = d3.select(`#${this.containerId}`).node();
         let needsRefit = false;
@@ -221,7 +225,7 @@ class D3Map {
         // Remove existing paths
         this.g.selectAll('path.region').remove();
         this.g.selectAll('path.overlay-region').remove();
-
+        
         // Bind data and create paths (works for both world and regional geojson)
         const paths = this.g.selectAll('path.region')
             .data(geojsonData.features)
@@ -233,7 +237,7 @@ class D3Map {
                 let value = null;
 
                 if (gdlcode) {
-                    const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
                     if (yearData) {
                         if (this.mapType === 'shdi') value = yearData.shdi;
                         else if (this.mapType === 'healthindex') value = yearData.healthindex;
@@ -242,13 +246,30 @@ class D3Map {
                     }
                 } else {
                     const iso = findIsoFromProps(d.properties);
-                    const yearData = nationalLookup[iso] && nationalLookup[iso][currentYear];
-                    if (yearData) {
-                        if (this.mapType === 'shdi') value = yearData.hdi;
-                        else if (this.mapType === 'healthindex') value = yearData.healthindex;
-                        else if (this.mapType === 'edindex') value = yearData.edindex;
-                        else if (this.mapType === 'incindex') value = yearData.incindex;
+                    
+                    // For national level maps, use variance coloring
+                    const varianceKey = `${iso}_${currentYear}`;
+                    const varianceData = countryComponentVariance[varianceKey];
+                    
+                    if (varianceData) {
+                        // Top map: HDI variance
+                if (this.mapType === 'shdi') {
+                            if (varianceData.hdiVariance !== null && varianceData.hdiVariance !== undefined) {
+                                return getColorForHdiVariance(varianceData.hdiVariance);
+                            }
+                        } else {
+                            // Bottom maps: component variance
+                            let variance = null;
+                            if (this.mapType === 'healthindex') variance = varianceData.healthVariance;
+                            else if (this.mapType === 'edindex') variance = varianceData.edVariance;
+                            else if (this.mapType === 'incindex') variance = varianceData.incVariance;
+                            
+                            if (variance !== null && variance !== undefined) {
+                                return getColorForVariance(variance, this.mapType);
+                            }
+                        }
                     }
+                    return COMPONENT_COLORS.missing;
                 }
 
                 return getColorForValue(value, this.mapType);
@@ -271,7 +292,7 @@ class D3Map {
                 const gdlcode = d.properties.gdlcode;
                 let value = null;
                 if (gdlcode) {
-                    const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
                     if (yearData) {
                         if (this.mapType === 'shdi') value = yearData.shdi;
                         else if (this.mapType === 'healthindex') value = yearData.healthindex;
@@ -280,12 +301,12 @@ class D3Map {
                     }
                 } else {
                     const iso = findIsoFromProps(d.properties);
-                    const yearData = nationalLookup[iso] && nationalLookup[iso][currentYear];
-                    if (yearData) {
-                        if (this.mapType === 'shdi') value = yearData.hdi;
-                        else if (this.mapType === 'healthindex') value = yearData.healthindex;
-                        else if (this.mapType === 'edindex') value = yearData.edindex;
-                        else if (this.mapType === 'incindex') value = yearData.incindex;
+                    
+                    // For national level maps, check variance data
+                    if (iso) {
+                        const varianceKey = `${iso}_${currentYear}`;
+                        const varianceData = countryComponentVariance[varianceKey];
+                        return varianceData ? 0.7 : 0.3;
                     }
                 }
                 return value !== null ? 0.7 : 0.3;
@@ -310,13 +331,30 @@ class D3Map {
                     }
                 } else {
                     const iso = findIsoFromProps(d.properties);
-                    const yearData = nationalLookup[iso] && nationalLookup[iso][currentYear];
                     name = (d.properties.name || d.properties.ADMIN || d.properties.country || iso) || iso;
-                    if (yearData) {
-                        if (this.mapType === 'shdi') { value = yearData.hdi; label = 'HDI'; }
-                        else if (this.mapType === 'healthindex') { value = yearData.healthindex; label = 'Health'; }
-                        else if (this.mapType === 'edindex') { value = yearData.edindex; label = 'Education'; }
-                        else if (this.mapType === 'incindex') { value = yearData.incindex; label = 'Income'; }
+                    
+                    // For national level maps, show variance info
+                    if (iso) {
+                        const varianceKey = `${iso}_${currentYear}`;
+                        const varianceData = countryComponentVariance[varianceKey];
+                        if (varianceData) {
+                            let variance = null;
+                            if (this.mapType === 'shdi') { variance = varianceData.hdiVariance; label = 'HDI Variance'; }
+                            else if (this.mapType === 'healthindex') { variance = varianceData.healthVariance; label = 'Health Variance'; }
+                            else if (this.mapType === 'edindex') { variance = varianceData.edVariance; label = 'Education Variance'; }
+                            else if (this.mapType === 'incindex') { variance = varianceData.incVariance; label = 'Income Variance'; }
+                            
+                            if (variance !== null) {
+                                const stdDev = Math.sqrt(variance);
+                                const tooltipText = `${name}<br>${label}: ${variance.toFixed(4)}<br>Std Dev: ${stdDev.toFixed(3)}<br>Regions: ${varianceData.regionCount}`;
+                                this.tooltip
+                                    .html(tooltipText)
+                                    .style('opacity', 1)
+                                    .style('left', (event.pageX + 10) + 'px')
+                                    .style('top', (event.pageY - 10) + 'px');
+                                return;
+                            }
+                        }
                     }
                 }
 
@@ -341,7 +379,7 @@ class D3Map {
             .on('click', (event, d) => {
                 // If region feature -> select region, otherwise select country
                 if (d.properties.gdlcode) {
-                    selectRegion(d.properties.gdlcode);
+                selectRegion(d.properties.gdlcode);
                 } else {
                     const iso = findIsoFromProps(d.properties);
                     selectCountry(iso);
@@ -364,20 +402,20 @@ class D3Map {
                         return getColorForDeviation(deviation);
                     }
                     
-                    // Bottom maps show component deviation from HDI
-                    if (yearData && yearData.shdi !== null) {
+                    // Bottom maps show component deviation from country average HDI
+                    if (yearData && yearData.country_avg_shdi !== null) {
                         let componentValue = null;
                         if (this.mapType === 'healthindex') componentValue = yearData.healthindex;
                         else if (this.mapType === 'edindex') componentValue = yearData.edindex;
                         else if (this.mapType === 'incindex') componentValue = yearData.incindex;
                         
-                        return getColorForComponentDeviation(componentValue, yearData.shdi, this.mapType);
+                        return getColorForComponentDeviation(componentValue, yearData.country_avg_shdi, this.mapType);
                     }
                     return COMPONENT_COLORS.missing;
                 })
                 .attr('stroke', d => selectedGdlcode === d.properties.gdlcode ? '#ff0000' : '#222')
                 .attr('stroke-width', d => selectedGdlcode === d.properties.gdlcode ? 3.5 : 0.8)
-                .attr('vector-effect', 'non-scaling-stroke')
+            .attr('vector-effect', 'non-scaling-stroke')
                 .style('shape-rendering', 'geometricPrecision')
                 .attr('fill-opacity', d => {
                     const yearData = dataLookup[d.properties.gdlcode] && dataLookup[d.properties.gdlcode][currentYear];
@@ -385,8 +423,8 @@ class D3Map {
                         const deviation = yearData ? yearData.hdi_deviation : null;
                         return deviation !== null ? 0.85 : 0.3;
                     }
-                    // Bottom maps: check if component and HDI both exist
-                    if (yearData && yearData.shdi !== null) {
+                    // Bottom maps: check if component and country average HDI both exist
+                    if (yearData && yearData.country_avg_shdi !== null) {
                         let componentValue = null;
                         if (this.mapType === 'healthindex') componentValue = yearData.healthindex;
                         else if (this.mapType === 'edindex') componentValue = yearData.edindex;
@@ -416,9 +454,9 @@ class D3Map {
                             tooltipText = `${name}<br>No data`;
                         }
                     } else {
-                        // Bottom maps show component deviation from HDI
+                        // Bottom maps show component deviation from country average HDI
                         let componentValue = null;
-                        const hdi = yearData ? yearData.shdi : null;
+                        const countryAvg = yearData ? yearData.country_avg_shdi : null;
                         const label = this.mapType === 'healthindex' ? 'Health' : (this.mapType === 'edindex' ? 'Education' : 'Income');
                         
                         if (yearData) {
@@ -427,10 +465,10 @@ class D3Map {
                             else if (this.mapType === 'incindex') componentValue = yearData.incindex;
                         }
                         
-                        if (componentValue !== null && hdi !== null) {
-                            const deviation = componentValue - hdi;
+                        if (componentValue !== null && countryAvg !== null) {
+                            const deviation = componentValue - countryAvg;
                             const sign = deviation >= 0 ? '+' : '';
-                            tooltipText = `${name}<br>${label}: ${componentValue.toFixed(3)}<br>HDI: ${hdi.toFixed(3)}<br>Deviation: ${sign}${deviation.toFixed(3)}`;
+                            tooltipText = `${name}<br>${label}: ${componentValue.toFixed(3)}<br>Country Avg HDI: ${countryAvg.toFixed(3)}<br>Deviation: ${sign}${deviation.toFixed(3)}`;
                         } else {
                             tooltipText = `${name}<br>No data`;
                         }
@@ -666,7 +704,8 @@ Promise.all([
         edindex: safeValue(row.edindex),
         incindex: safeValue(row.incindex),
         region: row.region || '',
-        country: row.country || ''
+        country: row.country || '',
+        isocode3: (row.isocode3 || '').toUpperCase()
     }));
 
     // Get available years from national data (use national years for the global slider)
@@ -724,6 +763,50 @@ Promise.all([
         });
     });
 
+    // Calculate component variance per country per year
+    // Group component values by ISO code and year (using isocode3 from subnational data)
+    const countryComponentGroups = {};
+    processedRows.forEach(row => {
+        if (!row.isocode3) return;
+        const key = `${row.isocode3}_${row.year}`;
+        if (!countryComponentGroups[key]) {
+            countryComponentGroups[key] = {
+                isocode3: row.isocode3,
+            country: row.country,
+                year: row.year,
+                hdi: [],
+                health: [],
+                education: [],
+                income: []
+            };
+        }
+        if (row.shdi !== null) countryComponentGroups[key].hdi.push(row.shdi);
+        if (row.healthindex !== null) countryComponentGroups[key].health.push(row.healthindex);
+        if (row.edindex !== null) countryComponentGroups[key].education.push(row.edindex);
+        if (row.incindex !== null) countryComponentGroups[key].income.push(row.incindex);
+    });
+
+    countryComponentVariance = {};
+    Object.values(countryComponentGroups).forEach(group => {
+        const key = `${group.isocode3}_${group.year}`;
+        
+        // Calculate variance: sum((x - mean)^2) / n
+        const calcVariance = (values) => {
+            if (values.length < 2) return 0;
+            const mean = values.reduce((a, b) => a + b, 0) / values.length;
+            const squaredDiffs = values.map(v => Math.pow(v - mean, 2));
+            return squaredDiffs.reduce((a, b) => a + b, 0) / values.length;
+        };
+        
+        countryComponentVariance[key] = {
+            hdiVariance: calcVariance(group.hdi),
+            healthVariance: calcVariance(group.health),
+            edVariance: calcVariance(group.education),
+            incVariance: calcVariance(group.income),
+            regionCount: Math.max(group.hdi.length, group.health.length, group.education.length, group.income.length)
+        };
+    });
+
     timeSeries = {};
     Object.keys(dataLookup).forEach(gdlcode => {
         const yearKeys = Object.keys(dataLookup[gdlcode]).map(y => parseInt(y)).sort((a, b) => a - b);
@@ -740,18 +823,18 @@ Promise.all([
             };
         }
     });
-
+    
     // Update UI
     document.getElementById('loading').style.display = 'none';
     if (years.length) {
-        document.getElementById('year-slider').min = years[0];
-        document.getElementById('year-slider').max = years[years.length - 1];
-        document.getElementById('year-slider').value = currentYear;
-        document.getElementById('year-display').textContent = currentYear;
+    document.getElementById('year-slider').min = years[0];
+    document.getElementById('year-slider').max = years[years.length - 1];
+    document.getElementById('year-slider').value = currentYear;
+    document.getElementById('year-display').textContent = currentYear;
     }
     document.getElementById('year-slider').disabled = false;
     document.getElementById('scale-toggle').disabled = false;
-
+    
     // Initialize maps
     initMaps();
 }).catch(err => {
@@ -849,11 +932,94 @@ function getColorForDeviation(deviation) {
     
     if (deviation > 0) {
         // Positive deviation (above country avg): green
-        return interpolateColor('#ffffff', '#00cc00', normalized);
+        return interpolateColor('#ffffff', '#0066cc', normalized);
     } else {
         // Negative deviation (below country avg): red
         return interpolateColor('#ffffff', '#cc0000', normalized);
     }
+}
+
+// Get HDI variance range (for national level top map)
+function getHdiVarianceRange() {
+    const variances = [];
+    Object.keys(countryComponentVariance).forEach(key => {
+        if (!key.endsWith(`_${currentYear}`)) return;
+        const data = countryComponentVariance[key];
+        if (data.hdiVariance !== null && data.hdiVariance !== undefined && !isNaN(data.hdiVariance) && data.hdiVariance > 0) {
+            variances.push(data.hdiVariance);
+        }
+    });
+    
+    if (variances.length === 0) {
+        return { min: 0, max: 0.01 };
+    }
+    
+    return {
+        min: 0,
+        max: Math.max(...variances)
+    };
+}
+
+// Get color for HDI variance (uses blue: higher variance = more blue)
+function getColorForHdiVariance(variance) {
+    if (variance === null || variance === undefined || isNaN(variance)) {
+        return COMPONENT_COLORS.missing;
+    }
+    
+    const range = getHdiVarianceRange();
+    if (range.max === 0) {
+        return '#ffffff';
+    }
+    
+    // Normalize variance to 0-1 range
+    const normalized = Math.min(1, variance / range.max);
+    
+    // Use blue for HDI variance (same as component variance)
+    return interpolateColor('#ffffff', '#0066cc', normalized);
+}
+
+// Get variance range for a component type (for national level maps)
+function getComponentVarianceRange(componentType) {
+    const variances = [];
+    Object.keys(countryComponentVariance).forEach(key => {
+        if (!key.endsWith(`_${currentYear}`)) return;
+        const data = countryComponentVariance[key];
+        let variance = null;
+        if (componentType === 'healthindex') variance = data.healthVariance;
+        else if (componentType === 'edindex') variance = data.edVariance;
+        else if (componentType === 'incindex') variance = data.incVariance;
+        
+        if (variance !== null && variance !== undefined && !isNaN(variance) && variance > 0) {
+            variances.push(variance);
+        }
+    });
+    
+    if (variances.length === 0) {
+        return { min: 0, max: 0.01 };
+    }
+    
+    return {
+        min: 0,
+        max: Math.max(...variances)
+    };
+}
+
+// Get color for component variance (higher variance = more blue)
+function getColorForVariance(variance, componentType) {
+    if (variance === null || variance === undefined || isNaN(variance)) {
+        return COMPONENT_COLORS.missing;
+    }
+    
+    const range = getComponentVarianceRange(componentType);
+    if (range.max === 0) {
+        return '#ffffff';
+    }
+    
+    // Normalize variance to 0-1 range
+    const normalized = Math.min(1, variance / range.max);
+    
+    // Use blue for all component variance (same as deviation positive)
+    return interpolateColor('#ffffff', '#0066cc', normalized);
 }
 
 // Get component deviation from HDI value range (for bottom maps)
@@ -861,14 +1027,14 @@ function getComponentDeviationRange(componentType) {
     const deviations = [];
     Object.keys(dataLookup).forEach(gdlcode => {
         const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
-        if (yearData && yearData.shdi !== null) {
+        if (yearData && yearData.country_avg_shdi !== null) {
             let componentValue = null;
             if (componentType === 'healthindex') componentValue = yearData.healthindex;
             else if (componentType === 'edindex') componentValue = yearData.edindex;
             else if (componentType === 'incindex') componentValue = yearData.incindex;
             
             if (componentValue !== null && !isNaN(componentValue)) {
-                const deviation = componentValue - yearData.shdi;
+                const deviation = componentValue - yearData.country_avg_shdi;
                 deviations.push(Math.abs(deviation));
             }
         }
@@ -903,7 +1069,7 @@ function getColorForComponentDeviation(componentValue, hdiValue, componentType) 
     
     if (deviation > 0) {
         // Positive deviation (component above HDI): green
-        return interpolateColor('#ffffff', '#00cc00', normalized);
+        return interpolateColor('#ffffff', '#0066cc', normalized);
     } else {
         // Negative deviation (component below HDI): red
         return interpolateColor('#ffffff', '#cc0000', normalized);
@@ -986,8 +1152,8 @@ function getColorForValue(value, type) {
 function createGradientCSS(mapType, isDeviation = false) {
     if (mapType === 'shdi') {
         if (isDeviation) {
-            // Deviation: red (below avg) -> white (avg) -> green (above avg)
-            return 'linear-gradient(to top, #cc0000, #ffffff, #00cc00)';
+        // Deviation: red (below avg) -> white (avg) -> green (above avg)
+            return 'linear-gradient(to top, #cc0000, #ffffff, #0066cc)';
         }
         return 'linear-gradient(to top, #ff0000, #00ff00)';
     } else if (mapType === 'healthindex') {
@@ -1037,7 +1203,7 @@ function updateLegend(mapType, legendId, title) {
         const gradientCSS = createGradientCSS('shdi', true); // Use same red-white-green gradient
         
         legendEl.innerHTML = `
-            <div class="legend-title">${title} (vs HDI)</div>
+            <div class="legend-title">${title} (vs Country Avg)</div>
             <div class="legend-gradient-container">
                 <div class="legend-gradient" style="background: ${gradientCSS};"></div>
                 <div class="legend-labels">
@@ -1050,7 +1216,49 @@ function updateLegend(mapType, legendId, title) {
         return;
     }
     
-    // Standard legend for national view
+    // National view: top map shows HDI variance
+    if (mapType === 'shdi' && !isShowingSubnational) {
+        const range = getHdiVarianceRange();
+        const maxStdDev = Math.sqrt(range.max).toFixed(3);
+        
+        // Use white to blue gradient for HDI variance
+        const gradientCSS = 'linear-gradient(to top, #ffffff, #0066cc)';
+        
+        legendEl.innerHTML = `
+            <div class="legend-title">${title} Variance</div>
+            <div class="legend-gradient-container">
+                <div class="legend-gradient" style="background: ${gradientCSS};"></div>
+                <div class="legend-labels">
+                    <span class="legend-label-top">σ=${maxStdDev}</span>
+                    <span class="legend-label-bottom">0</span>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    // National view: bottom maps show variance
+    if ((mapType === 'healthindex' || mapType === 'edindex' || mapType === 'incindex') && !isShowingSubnational) {
+        const range = getComponentVarianceRange(mapType);
+        const maxStdDev = Math.sqrt(range.max).toFixed(3);
+        
+        // Use white to blue gradient for component variance
+        const gradientCSS = 'linear-gradient(to top, #ffffff, #0066cc)';
+        
+        legendEl.innerHTML = `
+            <div class="legend-title">${title} Variance</div>
+            <div class="legend-gradient-container">
+                <div class="legend-gradient" style="background: ${gradientCSS};"></div>
+                <div class="legend-labels">
+                    <span class="legend-label-top">σ=${maxStdDev}</span>
+                    <span class="legend-label-bottom">0</span>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    // Standard legend for national HDI view
     let minVal, maxVal;
     if (useRelativeScale) {
         const range = getValueRange(mapType);
@@ -1643,14 +1851,14 @@ function updateChart() {
         }
         return;
     }
-
+    
     // Populate header info: for national selection show country name
     if (isNational) {
         document.getElementById('region-name').textContent = data.country || selectedCountryIso;
         document.getElementById('region-country').textContent = '';
     } else {
-        document.getElementById('region-name').textContent = data.region || 'Unknown';
-        document.getElementById('region-country').textContent = data.country || 'Unknown';
+    document.getElementById('region-name').textContent = data.region || 'Unknown';
+    document.getElementById('region-country').textContent = data.country || 'Unknown';
     }
     document.getElementById('region-info').style.display = 'block';
     document.getElementById('no-selection').style.display = 'none';
@@ -1926,7 +2134,7 @@ function updateHorizonChart() {
         document.getElementById('horizon-chart-container').style.display = 'none';
         return;
     }
-
+    
     if (!sourceRows || sourceRows.length === 0) {
         document.getElementById('horizon-chart-container').style.display = 'none';
         return;
@@ -1971,8 +2179,8 @@ function updateHorizonChart() {
                 if (f === 'lgnic' && isNational && !isNaN(n) && n > 0) {
                     obj.num[f] = Math.log(n);
                 } else {
-                    obj.num[f] = isNaN(n) ? NaN : n;
-                }
+                obj.num[f] = isNaN(n) ? NaN : n;
+            }
             }
 
             return obj;
