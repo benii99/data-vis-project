@@ -2390,7 +2390,13 @@ function updateChart() {
                             color: '#333'
                         },
                         ticks: {
-                            color: '#666'
+                            color: '#666',
+                            // Show year labels every 5 years
+                            callback: function(value, index) {
+                                const year = this.getLabelForValue(value);
+                                return year % 5 === 0 ? year : '';
+                            },
+                            autoSkip: false
                         },
                         grid: {
                             color: '#e0e0e0'
@@ -2945,7 +2951,7 @@ function initMaps() {
                     referenceHeight = maxHeight;
                     
                     // Apply common projection to all maps (offset handled in zoom behavior)
-                    maps.forEach(map => {
+            maps.forEach(map => {
                         if (map && map.initialized) {
                             map.projection.scale(commonProjection.scale())
                                 .translate(commonProjection.translate());
