@@ -339,6 +339,12 @@ body {
     margin-top: 0;
 }
 
+.legend-label-middle {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
 .legend-label-bottom {
     margin-top: auto;
 }
