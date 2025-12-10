@@ -147,7 +147,7 @@ class D3Map {
         // Fit projection to GeoJSON data
         // Use common projection if available (for synchronization)
         if (commonProjection && geojsonData) {
-            // Copy the common projection parameters
+            // Use identical projection for all maps (offset handled in zoom behavior)
             this.projection.scale(commonProjection.scale())
                 .translate(commonProjection.translate());
         } else if (geojsonData) {
@@ -213,7 +213,7 @@ class D3Map {
         // But use common projection if available to maintain synchronization
         if (needsRefit) {
             if (commonProjection) {
-                // Use common projection parameters to maintain sync
+                // Use identical projection for all maps (offset handled in zoom behavior)
                 this.projection.scale(commonProjection.scale())
                     .translate(commonProjection.translate());
             } else if (geojsonData) {
@@ -516,6 +516,7 @@ class D3Map {
         // Refit projection if needed
         if (needsRefit) {
             if (commonProjection) {
+                // Use identical projection for all maps (offset handled in zoom behavior)
                 this.projection.scale(commonProjection.scale())
                     .translate(commonProjection.translate());
             } else if (geojsonData) {
@@ -758,6 +759,7 @@ class D3Map {
                 
                 // Use common projection if available to maintain synchronization
                 if (commonProjection) {
+                    // Use identical projection for all maps (offset handled in zoom behavior)
                     this.projection.scale(commonProjection.scale())
                         .translate(commonProjection.translate());
                     this.path.projection(this.projection);
@@ -785,12 +787,22 @@ class D3Map {
     // Static method to create shared zoom behavior for a group of maps
     static createSharedZoom(mapGroup) {
         const zoom = d3.zoom()
-            .scaleExtent([0.5, 8])
+            .scaleExtent([0.5, 20])
             .on('zoom', (event) => {
-                // Apply the same transform to all maps in the group
+                // Apply transform to all maps, adjusted for each map's offset
+                const t = event.transform;
                 mapGroup.forEach(map => {
                     if (map && map.initialized && map.g) {
-                        map.g.attr('transform', event.transform);
+                        // Calculate offset for this map relative to reference
+                        const offsetX = (map.width - referenceWidth) / 2;
+                        const offsetY = (map.height - referenceHeight) / 2;
+                        
+                        // Combine zoom transform with map's offset
+                        // The offset needs to be applied before scaling
+                        const adjustedX = t.x + offsetX;
+                        const adjustedY = t.y + offsetY;
+                        
+                        map.g.attr('transform', `translate(${adjustedX}, ${adjustedY}) scale(${t.k})`);
                     }
                 });
             });
@@ -1080,7 +1092,6 @@ Promise.all([
     document.getElementById('year-display').textContent = currentYear;
     }
     document.getElementById('year-slider').disabled = false;
-    document.getElementById('scale-toggle').disabled = false;
     
     // Initialize maps
     initMaps();
@@ -1872,11 +1883,6 @@ function switchVisualization(mode) {
     const valuesContainer = document.getElementById('viz-values-container');
     if (valuesContainer) {
         valuesContainer.classList.toggle('active', mode === 'values');
-    }
-    
-    const scaleToggle = document.getElementById('scale-toggle');
-    if (scaleToggle) {
-        scaleToggle.style.display = (mode === 'components' || mode === 'values') ? 'block' : 'none';
     }
     
     // Trigger resize for D3 maps if needed
@@ -2938,21 +2944,29 @@ function initMaps() {
                     referenceWidth = maxWidth;
                     referenceHeight = maxHeight;
                     
-                    // Apply common projection to all maps
-            maps.forEach(map => {
+                    // Apply common projection to all maps (offset handled in zoom behavior)
+                    maps.forEach(map => {
                         if (map && map.initialized) {
                             map.projection.scale(commonProjection.scale())
                                 .translate(commonProjection.translate());
                             map.path.projection(map.projection);
+                            // Apply initial offset transform to g element
+                            const offsetX = (map.width - referenceWidth) / 2;
+                            const offsetY = (map.height - referenceHeight) / 2;
+                            map.g.attr('transform', `translate(${offsetX}, ${offsetY})`);
                         }
                     });
                     
-                    // Apply common projection to values maps
+                    // Apply common projection to values maps (offset handled in zoom behavior)
                     valuesMaps.forEach(map => {
                         if (map && map.initialized) {
                             map.projection.scale(commonProjection.scale())
                                 .translate(commonProjection.translate());
                             map.path.projection(map.projection);
+                            // Apply initial offset transform to g element
+                            const offsetX = (map.width - referenceWidth) / 2;
+                            const offsetY = (map.height - referenceHeight) / 2;
+                            map.g.attr('transform', `translate(${offsetX}, ${offsetY})`);
                         }
                     });
                 }
@@ -2996,18 +3010,6 @@ function initMaps() {
 document.getElementById('year-slider').addEventListener('input', function(e) {
     currentYear = parseInt(e.target.value);
     document.getElementById('year-display').textContent = currentYear;
-    if (currentVizMode === 'components') {
-        updateMaps();
-    } else if (currentVizMode === 'values') {
-        updateValuesMaps();
-    }
-});
-
-// Scale toggle handler
-document.getElementById('scale-toggle').addEventListener('click', function() {
-    useRelativeScale = !useRelativeScale;
-    this.textContent = useRelativeScale ? 'Scale: Relative' : 'Scale: Absolute';
-    this.classList.toggle('active', useRelativeScale);
     if (currentVizMode === 'components') {
         updateMaps();
     } else if (currentVizMode === 'values') {
