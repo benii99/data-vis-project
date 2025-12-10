@@ -12,17 +12,13 @@
     <div class="dashboard-container">
         <div class="sidebar">
             <h3>Visualizations</h3>
-            <button class="viz-button active" data-viz="components" id="viz-components">4-Map Components</button>
+            <button class="viz-button active" data-viz="components" id="viz-components">HDI Component Deviation</button>
             <div id="desc-components" class="viz-description">
-                Shows the overall HDI (top map) and the three component indices: Health, Education, and Income (bottom maps). Each map uses a color gradient to represent index values.
+                Shows deviation from averages. At national level: HDI variance across regions. At regional level: component deviation from country average HDI.
             </div>
-            <button class="viz-button" data-viz="difference" id="viz-difference">4-Map Difference</button>
-            <div id="desc-difference" class="viz-description hidden">
-                Shows the difference between HDI and component values. The top map displays HDI minus the lowest component (bottleneck), colored by the bottleneck component. Bottom maps show HDI minus each specific component, highlighting how much each component lags behind overall development.
-            </div>
-            <button class="viz-button" data-viz="bottleneck" id="viz-bottleneck">Bottleneck View</button>
-            <div id="desc-bottleneck" class="viz-description hidden">
-                Displays which component (Health, Education, or Income) is the bottleneck for each region - the component with the lowest value that limits overall HDI development. Regions are colored by their bottleneck component.
+            <button class="viz-button" data-viz="values" id="viz-values">Values Visualization</button>
+            <div id="desc-values" class="viz-description hidden">
+                Shows raw HDI and component values. At national level: country HDI and average component values. At regional level: region HDI and component values.
             </div>
         </div>
         
@@ -36,8 +32,8 @@
             <div class="map-container">
                 <div id="loading" class="loading">Loading data...</div>
                 
-                <!-- 4-Map Components View -->
-                <div id="viz-components-container" class="viz-container">
+                <!-- HDI Component Deviation View -->
+                <div id="viz-components-container" class="viz-container active">
                     <div id="map-top" class="map-top">
                         <div class="map-label map-label-hdi">HDI (Overall)</div>
                         <div id="legend-top" class="map-legend"></div>
@@ -58,33 +54,25 @@
                     </div>
                 </div>
                 
-                <!-- Difference View -->
-                <div id="viz-difference-container" class="viz-container">
-                    <div id="map-diff-top" class="map-top">
-                        <div class="map-label map-label-hdi">HDI - Lowest Component</div>
-                        <div id="legend-diff-top" class="map-legend"></div>
+                <!-- Values Visualization View -->
+                <div id="viz-values-container" class="viz-container">
+                    <div id="map-values-top" class="map-top">
+                        <div class="map-label map-label-hdi">HDI Value</div>
+                        <div id="legend-values-top" class="map-legend"></div>
                     </div>
                     <div class="maps-bottom">
-                        <div id="map-diff-bottom-1" class="map-bottom">
-                            <div class="map-label map-label-health">HDI - Health</div>
-                            <div id="legend-diff-bottom-1" class="map-legend"></div>
+                        <div id="map-values-bottom-1" class="map-bottom">
+                            <div class="map-label map-label-health">Health Value</div>
+                            <div id="legend-values-bottom-1" class="map-legend"></div>
                         </div>
-                        <div id="map-diff-bottom-2" class="map-bottom">
-                            <div class="map-label map-label-education">HDI - Education</div>
-                            <div id="legend-diff-bottom-2" class="map-legend"></div>
+                        <div id="map-values-bottom-2" class="map-bottom">
+                            <div class="map-label map-label-education">Education Value</div>
+                            <div id="legend-values-bottom-2" class="map-legend"></div>
                         </div>
-                        <div id="map-diff-bottom-3" class="map-bottom">
-                            <div class="map-label map-label-income">HDI - Income</div>
-                            <div id="legend-diff-bottom-3" class="map-legend"></div>
+                        <div id="map-values-bottom-3" class="map-bottom">
+                            <div class="map-label map-label-income">Income Value</div>
+                            <div id="legend-values-bottom-3" class="map-legend"></div>
                         </div>
-                    </div>
-                </div>
-                
-                <!-- Bottleneck View -->
-                <div id="viz-bottleneck-container" class="viz-container">
-                    <div id="map-bottleneck" class="map-full">
-                        <div class="map-label">Bottleneck Component</div>
-                        <div id="legend-bottleneck" class="bottleneck-legend"></div>
                     </div>
                 </div>
             </div>

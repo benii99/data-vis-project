@@ -90,8 +90,8 @@ let sharedZoomDiffMaps = null;
 
 // Store all map instances (D3-based)
 const maps = []; // Array of D3Map instances
-const diffMaps = [];
-let bottleneckMap = null;
+const valuesMaps = []; // Array of D3Map instances for values visualization
+let sharedZoomValuesMaps = null;
 
 /* ==================== D3MAP CLASS ==================== */
 
@@ -319,7 +319,7 @@ class D3Map {
                 let name = '';
 
                 if (gdlcode) {
-                    const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
                     if (yearData) {
                         if (this.mapType === 'shdi') { value = yearData.shdi; label = 'HDI'; }
                         else if (this.mapType === 'healthindex') { value = yearData.healthindex; label = 'Health'; }
@@ -437,23 +437,23 @@ class D3Map {
                 .on('mouseover', (event, d) => {
                     const yearData = dataLookup[d.properties.gdlcode] && dataLookup[d.properties.gdlcode][currentYear];
                     const name = (yearData && yearData.region) || d.properties.region || d.properties.name || d.properties.GDL_NAME || d.properties.gdlcode;
-                    
-                    let tooltipText = '';
-                    
+                
+                let tooltipText = '';
+                
                     // Top map shows deviation info for subnational regions
-                    if (this.mapType === 'shdi') {
-                        const deviation = yearData ? yearData.hdi_deviation : null;
-                        const hdi = yearData ? yearData.shdi : null;
-                        const countryAvg = yearData ? yearData.country_avg_shdi : null;
-                        
-                        if (deviation !== null && hdi !== null) {
-                            const sign = deviation >= 0 ? '+' : '';
-                            const avgText = countryAvg !== null ? countryAvg.toFixed(3) : 'N/A';
+                if (this.mapType === 'shdi') {
+                    const deviation = yearData ? yearData.hdi_deviation : null;
+                    const hdi = yearData ? yearData.shdi : null;
+                    const countryAvg = yearData ? yearData.country_avg_shdi : null;
+                    
+                    if (deviation !== null && hdi !== null) {
+                        const sign = deviation >= 0 ? '+' : '';
+                        const avgText = countryAvg !== null ? countryAvg.toFixed(3) : 'N/A';
                             tooltipText = `${name}<br>HDI: ${hdi.toFixed(3)}<br>Country Avg: ${avgText}<br>Deviation: ${sign}${deviation.toFixed(3)}`;
-                        } else {
-                            tooltipText = `${name}<br>No data`;
-                        }
                     } else {
+                            tooltipText = `${name}<br>No data`;
+                    }
+                } else {
                         // Bottom maps show component deviation from country average HDI
                         let componentValue = null;
                         const countryAvg = yearData ? yearData.country_avg_shdi : null;
@@ -484,6 +484,260 @@ class D3Map {
                 })
                 .on('click', (event, d) => {
                     // Selecting a region from the overlay
+                    if (d.properties && d.properties.gdlcode) selectRegion(d.properties.gdlcode);
+                });
+        }
+    }
+    
+    // Update method for Values Visualization (shows raw values, no deviations)
+    updateValues(mapType) {
+        if (!this.initialized || !geojsonData || !this.g) return;
+        
+        this.mapType = mapType || this.mapType;
+        if (!this.mapType) return;
+
+        // Use neutral white background for all maps
+        this.svg.style('background-color', '#fafafa');
+        
+        // Ensure projection is properly fitted
+        const containerNode = d3.select(`#${this.containerId}`).node();
+        let needsRefit = false;
+        if (containerNode) {
+            const width = containerNode.clientWidth || this.width;
+            const height = containerNode.clientHeight || this.height;
+            if (width > 0 && height > 0 && (width !== this.width || height !== this.height)) {
+                this.width = width;
+                this.height = height;
+                this.svg.attr('viewBox', `0 0 ${width} ${height}`);
+                needsRefit = true;
+            }
+        }
+        
+        // Refit projection if needed
+        if (needsRefit) {
+            if (commonProjection) {
+                this.projection.scale(commonProjection.scale())
+                    .translate(commonProjection.translate());
+            } else if (geojsonData) {
+                this.projection.fitSize([this.width, this.height], geojsonData);
+            }
+            this.path.projection(this.projection);
+        }
+        
+        // Remove existing paths
+        this.g.selectAll('path.region').remove();
+        this.g.selectAll('path.overlay-region').remove();
+        
+        // Bind data and create paths for world countries
+        const paths = this.g.selectAll('path.region')
+            .data(geojsonData.features)
+            .join('path')
+            .attr('class', 'region')
+            .attr('d', this.path)
+            .attr('fill', d => {
+                const gdlcode = d.properties.gdlcode;
+                    let value = null;
+
+                if (gdlcode) {
+                    const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                    if (yearData) {
+                        if (this.mapType === 'shdi') value = yearData.shdi;
+                        else if (this.mapType === 'healthindex') value = yearData.healthindex;
+                        else if (this.mapType === 'edindex') value = yearData.edindex;
+                        else if (this.mapType === 'incindex') value = yearData.incindex;
+                    }
+                } else {
+                    // National level: get country HDI or average component value
+                    const iso = findIsoFromProps(d.properties);
+                    if (iso && nationalTimeSeries[iso]) {
+                        const yearIndex = nationalTimeSeries[iso].years.indexOf(currentYear);
+                        if (yearIndex !== -1) {
+                            if (this.mapType === 'shdi') {
+                                value = nationalTimeSeries[iso].shdi[yearIndex];
+                            } else if (this.mapType === 'healthindex') {
+                                value = nationalTimeSeries[iso].healthindex ? nationalTimeSeries[iso].healthindex[yearIndex] : null;
+                            } else if (this.mapType === 'edindex') {
+                                value = nationalTimeSeries[iso].edindex ? nationalTimeSeries[iso].edindex[yearIndex] : null;
+                            } else if (this.mapType === 'incindex') {
+                                value = nationalTimeSeries[iso].incindex ? nationalTimeSeries[iso].incindex[yearIndex] : null;
+                            }
+                        }
+                    }
+                }
+
+                return getColorForRawValue(value, this.mapType);
+            })
+            .attr('stroke', d => {
+                const gdlcode = d.properties.gdlcode;
+                if (gdlcode) return selectedGdlcode === gdlcode ? '#ff0000' : '#333';
+                const iso = findIsoFromProps(d.properties);
+                return selectedCountryIso === iso ? '#ff0000' : '#333';
+            })
+            .attr('stroke-width', d => {
+                const gdlcode = d.properties.gdlcode;
+                if (gdlcode) return selectedGdlcode === gdlcode ? 3.5 : 0.5;
+                const iso = findIsoFromProps(d.properties);
+                return selectedCountryIso === iso ? 3.5 : 0.5;
+            })
+            .attr('vector-effect', 'non-scaling-stroke')
+            .style('shape-rendering', 'geometricPrecision')
+            .attr('fill-opacity', d => {
+                const gdlcode = d.properties.gdlcode;
+                let value = null;
+                if (gdlcode) {
+                    const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
+                    if (yearData) {
+                        if (this.mapType === 'shdi') value = yearData.shdi;
+                        else if (this.mapType === 'healthindex') value = yearData.healthindex;
+                        else if (this.mapType === 'edindex') value = yearData.edindex;
+                        else if (this.mapType === 'incindex') value = yearData.incindex;
+                    }
+                } else {
+                    const iso = findIsoFromProps(d.properties);
+                    if (iso && nationalTimeSeries[iso]) {
+                        const yearIndex = nationalTimeSeries[iso].years.indexOf(currentYear);
+                        if (yearIndex !== -1) {
+                            if (this.mapType === 'shdi') {
+                                value = nationalTimeSeries[iso].shdi[yearIndex];
+                            } else if (this.mapType === 'healthindex') {
+                                value = nationalTimeSeries[iso].healthindex ? nationalTimeSeries[iso].healthindex[yearIndex] : null;
+                            } else if (this.mapType === 'edindex') {
+                                value = nationalTimeSeries[iso].edindex ? nationalTimeSeries[iso].edindex[yearIndex] : null;
+                            } else if (this.mapType === 'incindex') {
+                                value = nationalTimeSeries[iso].incindex ? nationalTimeSeries[iso].incindex[yearIndex] : null;
+                            }
+                        }
+                    }
+                }
+                return value !== null ? 0.85 : 0.3;
+            })
+            .style('cursor', 'pointer')
+            .on('mouseover', (event, d) => {
+                const iso = findIsoFromProps(d.properties);
+                const name = d.properties.name || d.properties.NAME || d.properties.ADMIN || d.properties.SOVEREIGNT || iso || 'Unknown';
+                
+                let tooltipText = '';
+                
+                if (iso && nationalTimeSeries[iso]) {
+                    const yearIndex = nationalTimeSeries[iso].years.indexOf(currentYear);
+                    if (yearIndex !== -1) {
+                        let value = null;
+                        let label = '';
+                        if (this.mapType === 'shdi') {
+                            value = nationalTimeSeries[iso].shdi[yearIndex];
+                            label = 'HDI';
+                        } else if (this.mapType === 'healthindex') {
+                            value = nationalTimeSeries[iso].healthindex ? nationalTimeSeries[iso].healthindex[yearIndex] : null;
+                            label = 'Health';
+                        } else if (this.mapType === 'edindex') {
+                            value = nationalTimeSeries[iso].edindex ? nationalTimeSeries[iso].edindex[yearIndex] : null;
+                            label = 'Education';
+                        } else if (this.mapType === 'incindex') {
+                            value = nationalTimeSeries[iso].incindex ? nationalTimeSeries[iso].incindex[yearIndex] : null;
+                            label = 'Income';
+                        }
+                        
+                        if (value !== null) {
+                            tooltipText = `${name}<br>${label}: ${value.toFixed(3)}`;
+                        } else {
+                            tooltipText = `${name}<br>No data`;
+                        }
+                    } else {
+                        tooltipText = `${name}<br>No data for ${currentYear}`;
+                    }
+                } else {
+                    tooltipText = `${name}<br>No data`;
+                }
+                
+                this.tooltip.html(tooltipText).style('opacity', 1).style('left', (event.pageX + 10) + 'px').style('top', (event.pageY - 10) + 'px');
+            })
+            .on('mousemove', (event) => {
+                this.tooltip.style('left', (event.pageX + 10) + 'px').style('top', (event.pageY - 10) + 'px');
+            })
+            .on('mouseout', () => {
+                this.tooltip.style('opacity', 0);
+            })
+            .on('click', (event, d) => {
+                const iso = findIsoFromProps(d.properties);
+                if (iso) selectCountry(iso);
+            });
+        
+        // Add overlay regions for selected country (subnational view)
+        if (overlayRegionFeatures && overlayRegionFeatures.length > 0) {
+            const overlay = this.g.selectAll('path.overlay-region')
+                .data(overlayRegionFeatures)
+                .join('path')
+                .attr('class', 'overlay-region')
+                .attr('d', this.path)
+                .attr('fill', d => {
+                    const yearData = dataLookup[d.properties.gdlcode] && dataLookup[d.properties.gdlcode][currentYear];
+                    
+                    // Show raw values
+                    let value = null;
+                    if (yearData) {
+                        if (this.mapType === 'shdi') value = yearData.shdi;
+                        else if (this.mapType === 'healthindex') value = yearData.healthindex;
+                        else if (this.mapType === 'edindex') value = yearData.edindex;
+                        else if (this.mapType === 'incindex') value = yearData.incindex;
+                    }
+                    
+                    return getColorForRawValue(value, this.mapType);
+                })
+                .attr('stroke', d => selectedGdlcode === d.properties.gdlcode ? '#ff0000' : '#222')
+                .attr('stroke-width', d => selectedGdlcode === d.properties.gdlcode ? 3.5 : 0.8)
+                .attr('vector-effect', 'non-scaling-stroke')
+                .style('shape-rendering', 'geometricPrecision')
+                .attr('fill-opacity', d => {
+                    const yearData = dataLookup[d.properties.gdlcode] && dataLookup[d.properties.gdlcode][currentYear];
+                    let value = null;
+                    if (yearData) {
+                        if (this.mapType === 'shdi') value = yearData.shdi;
+                        else if (this.mapType === 'healthindex') value = yearData.healthindex;
+                        else if (this.mapType === 'edindex') value = yearData.edindex;
+                        else if (this.mapType === 'incindex') value = yearData.incindex;
+                    }
+                    return value !== null ? 0.85 : 0.3;
+                })
+                .style('cursor', 'pointer')
+                .on('mouseover', (event, d) => {
+                    const yearData = dataLookup[d.properties.gdlcode] && dataLookup[d.properties.gdlcode][currentYear];
+                    const name = (yearData && yearData.region) || d.properties.region || d.properties.name || d.properties.GDL_NAME || d.properties.gdlcode;
+                    
+                    let tooltipText = '';
+                    let value = null;
+                    let label = '';
+                    
+                    if (yearData) {
+                        if (this.mapType === 'shdi') {
+                            value = yearData.shdi;
+                            label = 'HDI';
+                        } else if (this.mapType === 'healthindex') {
+                            value = yearData.healthindex;
+                            label = 'Health';
+                        } else if (this.mapType === 'edindex') {
+                            value = yearData.edindex;
+                            label = 'Education';
+                        } else if (this.mapType === 'incindex') {
+                            value = yearData.incindex;
+                            label = 'Income';
+                        }
+                    }
+                    
+                    if (value !== null) {
+                        tooltipText = `${name}<br>${label}: ${value.toFixed(3)}`;
+                    } else {
+                        tooltipText = `${name}<br>No data`;
+                    }
+                    
+                    this.tooltip.html(tooltipText).style('opacity', 1).style('left', (event.pageX + 10) + 'px').style('top', (event.pageY - 10) + 'px');
+                })
+                .on('mousemove', (event) => {
+                    this.tooltip.style('left', (event.pageX + 10) + 'px').style('top', (event.pageY - 10) + 'px');
+                })
+                .on('mouseout', () => {
+                    this.tooltip.style('opacity', 0);
+                })
+                .on('click', (event, d) => {
                     if (d.properties && d.properties.gdlcode) selectRegion(d.properties.gdlcode);
                 });
         }
@@ -563,13 +817,6 @@ const mapTypes = [
     {id: 'map-bottom-3', type: 'incindex', legendId: 'legend-bottom-3', title: 'Income'}
 ];
 
-// Difference map types and their legend IDs
-const diffMapTypes = [
-    {id: 'map-diff-top', type: 'diff-bottleneck', legendId: 'legend-diff-top', title: 'HDI - Lowest'},
-    {id: 'map-diff-bottom-1', type: 'diff-health', legendId: 'legend-diff-bottom-1', title: 'HDI - Health'},
-    {id: 'map-diff-bottom-2', type: 'diff-education', legendId: 'legend-diff-bottom-2', title: 'HDI - Education'},
-    {id: 'map-diff-bottom-3', type: 'diff-income', legendId: 'legend-diff-bottom-3', title: 'HDI - Income'}
-];
 
 /* ==================== GEOJSON PROCESSING ==================== */
 
@@ -1148,6 +1395,30 @@ function getColorForValue(value, type) {
     return COMPONENT_COLORS.missing;
 }
 
+// Get color for raw value display (Values Visualization) - HDI uses white-to-green
+function getColorForRawValue(value, type) {
+    if (value === null || value === undefined || isNaN(value)) {
+        return COMPONENT_COLORS.missing;
+    }
+    
+    const normalized = normalizeValue(value, type);
+    if (normalized === null) {
+        return COMPONENT_COLORS.missing;
+    }
+    
+    if (type === 'shdi') {
+        // White to green for HDI in values visualization
+        return interpolateColor('#ffffff', '#00aa44', normalized);
+    } else if (type === 'healthindex') {
+        return interpolateColor('#ffffff', COMPONENT_COLORS.health, normalized);
+    } else if (type === 'edindex') {
+        return interpolateColor('#ffffff', COMPONENT_COLORS.education, normalized);
+    } else if (type === 'incindex') {
+        return interpolateColor('#ffffff', COMPONENT_COLORS.income, normalized);
+    }
+    return COMPONENT_COLORS.missing;
+}
+
 // Create gradient CSS for legend
 function createGradientCSS(mapType, isDeviation = false) {
     if (mapType === 'shdi') {
@@ -1288,6 +1559,49 @@ function updateAllLegends() {
     mapTypes.forEach(({type, legendId, title}) => {
         updateLegend(type, legendId, title);
     });
+}
+
+// Values map types for the Values Visualization
+const valuesMapTypes = [
+    {id: 'map-values-top', type: 'shdi', legendId: 'legend-values-top', title: 'HDI'},
+    {id: 'map-values-bottom-1', type: 'healthindex', legendId: 'legend-values-bottom-1', title: 'Health'},
+    {id: 'map-values-bottom-2', type: 'edindex', legendId: 'legend-values-bottom-2', title: 'Education'},
+    {id: 'map-values-bottom-3', type: 'incindex', legendId: 'legend-values-bottom-3', title: 'Income'}
+];
+
+function updateValuesLegends() {
+    valuesMapTypes.forEach(({type, legendId, title}) => {
+        updateValuesLegend(type, legendId, title);
+    });
+}
+
+// Update legend for Values Visualization (simple value gradient)
+function updateValuesLegend(mapType, legendId, title) {
+    const legendEl = document.getElementById(legendId);
+    if (!legendEl) return;
+    
+    const range = getValueRange(mapType);
+    const minVal = range.min.toFixed(3);
+    const maxVal = range.max.toFixed(3);
+    
+    // For HDI (top map), use white-to-green instead of default gradient
+    let gradientCSS;
+    if (mapType === 'shdi') {
+        gradientCSS = 'linear-gradient(to top, #ffffff, #00aa44)';
+    } else {
+        gradientCSS = createGradientCSS(mapType, false);
+    }
+    
+    legendEl.innerHTML = `
+        <div class="legend-title">${title}</div>
+        <div class="legend-gradient-container">
+            <div class="legend-gradient" style="background: ${gradientCSS};"></div>
+            <div class="legend-labels">
+                <span class="legend-label-top">${maxVal}</span>
+                <span class="legend-label-bottom">${minVal}</span>
+            </div>
+        </div>
+    `;
 }
 
 // ==================== DATA ANALYSIS FUNCTIONS ====================
@@ -1555,28 +1869,24 @@ function switchVisualization(mode) {
     }
     
     document.getElementById('viz-components-container').classList.toggle('active', mode === 'components');
-    document.getElementById('viz-difference-container').classList.toggle('active', mode === 'difference');
-    document.getElementById('viz-bottleneck-container').classList.toggle('active', mode === 'bottleneck');
+    const valuesContainer = document.getElementById('viz-values-container');
+    if (valuesContainer) {
+        valuesContainer.classList.toggle('active', mode === 'values');
+    }
     
     const scaleToggle = document.getElementById('scale-toggle');
     if (scaleToggle) {
-        scaleToggle.style.display = (mode === 'components' || mode === 'difference') ? 'block' : 'none';
+        scaleToggle.style.display = (mode === 'components' || mode === 'values') ? 'block' : 'none';
     }
     
     // Trigger resize for D3 maps if needed
     setTimeout(() => {
-        // Maps will resize automatically on next update
+        if (mode === 'values') {
+            updateValuesMaps();
+        } else {
         updateMaps();
+        }
     }, 200);
-    
-    if (mode === 'bottleneck') {
-        updateBottleneckMap();
-        updateBottleneckLegend();
-    } else if (mode === 'difference') {
-        updateDifferenceMaps();
-    } else {
-        updateMaps();
-    }
 }
 
 // Style function factory
@@ -1629,6 +1939,24 @@ function updateMaps() {
     updateAllLegends();
 }
 
+// Function to update values visualization maps (shows raw values, no deviations)
+function updateValuesMaps() {
+    if (!geojsonData) return;
+    
+    valuesMaps.forEach((map, index) => {
+        if (!map || !map.initialized) return;
+        
+        const mapType = index === 0 ? 'shdi' : 
+                       index === 1 ? 'healthindex' : 
+                       index === 2 ? 'edindex' : 'incindex';
+        
+        // Use a special update mode for values visualization
+        map.updateValues(mapType);
+    });
+    
+    updateValuesLegends();
+}
+
 // ==================== INTERACTION FUNCTIONS ====================
 
 // Function to select a region
@@ -1650,10 +1978,8 @@ function selectRegion(gdlcode) {
     }
     if (currentVizMode === 'components') {
         updateMaps();
-    } else if (currentVizMode === 'difference') {
-        updateDifferenceMaps();
-    } else {
-        updateBottleneckMap();
+    } else if (currentVizMode === 'values') {
+        updateValuesMaps();
     }
     updateChart();
 }
@@ -1675,10 +2001,8 @@ function selectCountry(iso3) {
     // Update maps and legends
     if (currentVizMode === 'components') {
         updateMaps();
-    } else if (currentVizMode === 'difference') {
-        updateDifferenceMaps();
-    } else {
-        updateBottleneckMap();
+    } else if (currentVizMode === 'values') {
+        updateValuesMaps();
     }
 
     // Update chart to show national HDI time series
@@ -2570,28 +2894,26 @@ function initMaps() {
                 }
             });
             
-            // Initialize difference maps (for later)
-            const diffMapTop = initD3Map('map-diff-top', null, null, null);
-            if (diffMapTop) diffMaps.push(diffMapTop);
+            // Initialize values maps
+            const valuesMapTop = initD3Map('map-values-top', 'shdi', null, null);
+            if (valuesMapTop) valuesMaps.push(valuesMapTop);
         
-        const diffMapIds = ['map-diff-bottom-1', 'map-diff-bottom-2', 'map-diff-bottom-3'];
-            diffMapIds.forEach((id, index) => {
-                const map = initD3Map(id, null, null, null);
-                if (map) diffMaps.push(map);
+            const valuesMapIds = ['map-values-bottom-1', 'map-values-bottom-2', 'map-values-bottom-3'];
+            const valuesMapTypes = ['healthindex', 'edindex', 'incindex'];
+            valuesMapIds.forEach((id, index) => {
+                const map = initD3Map(id, valuesMapTypes[index], null, null);
+                if (map) valuesMaps.push(map);
             });
             
-            // Create shared zoom behavior for difference maps
-            sharedZoomDiffMaps = D3Map.createSharedZoom(diffMaps);
+            // Create shared zoom behavior for values maps
+            sharedZoomValuesMaps = D3Map.createSharedZoom(valuesMaps);
             
-            // Attach shared zoom to all difference maps
-            diffMaps.forEach(map => {
+            // Attach shared zoom to all values maps
+            valuesMaps.forEach(map => {
                 if (map && map.initialized) {
-                    map.setZoomBehavior(sharedZoomDiffMaps);
+                    map.setZoomBehavior(sharedZoomValuesMaps);
                 }
             });
-            
-            // Initialize bottleneck map (for later)
-            bottleneckMap = initD3Map('map-bottleneck', null, null, null);
             
             // Calculate common projection for all maps to ensure synchronization
             // Use the largest map dimensions as reference
@@ -2624,11 +2946,21 @@ function initMaps() {
                             map.path.projection(map.projection);
                         }
                     });
+                    
+                    // Apply common projection to values maps
+                    valuesMaps.forEach(map => {
+                        if (map && map.initialized) {
+                            map.projection.scale(commonProjection.scale())
+                                .translate(commonProjection.translate());
+                            map.path.projection(map.projection);
+                        }
+                    });
                 }
             }
             
             // Update all maps after setting common projection
             updateMaps();
+            updateValuesMaps();
             
             // Handle window resize
             let resizeTimeout;
@@ -2640,15 +2972,20 @@ function initMaps() {
                             map.resize();
                         }
                 });
+                    valuesMaps.forEach(map => {
+                        if (map && map.initialized) {
+                            map.resize();
+                        }
+                    });
+                    if (currentVizMode === 'components') {
                     updateMaps();
+                    } else if (currentVizMode === 'values') {
+                        updateValuesMaps();
+                    }
                 }, 250);
                 });
         
         updateMaps();
-            // Note: updateDifferenceMaps and updateBottleneckMap will be implemented later
-            // updateDifferenceMaps();
-            // updateBottleneckMap();
-            // updateBottleneckLegend();
         }, 100);
     });
 }
@@ -2661,10 +2998,8 @@ document.getElementById('year-slider').addEventListener('input', function(e) {
     document.getElementById('year-display').textContent = currentYear;
     if (currentVizMode === 'components') {
         updateMaps();
-    } else if (currentVizMode === 'difference') {
-        updateDifferenceMaps();
-    } else {
-        updateBottleneckMap();
+    } else if (currentVizMode === 'values') {
+        updateValuesMaps();
     }
 });
 
@@ -2675,8 +3010,8 @@ document.getElementById('scale-toggle').addEventListener('click', function() {
     this.classList.toggle('active', useRelativeScale);
     if (currentVizMode === 'components') {
         updateMaps();
-    } else if (currentVizMode === 'difference') {
-        updateDifferenceMaps();
+    } else if (currentVizMode === 'values') {
+        updateValuesMaps();
     }
 });
 
