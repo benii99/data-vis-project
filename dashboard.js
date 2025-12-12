@@ -430,14 +430,22 @@ class D3Map {
                         return getColorForDeviation(deviation);
                     }
                     
-                    // Bottom maps show component deviation from country average HDI
-                    if (yearData && yearData.country_avg_shdi !== null) {
+                    // Bottom maps show component deviation from national component value
+                    if (yearData) {
                         let componentValue = null;
-                        if (this.mapType === 'healthindex') componentValue = yearData.healthindex;
-                        else if (this.mapType === 'edindex') componentValue = yearData.edindex;
-                        else if (this.mapType === 'incindex') componentValue = yearData.incindex;
+                        let nationalComponentValue = null;
+                        if (this.mapType === 'healthindex') {
+                            componentValue = yearData.healthindex;
+                            nationalComponentValue = yearData.country_healthindex;
+                        } else if (this.mapType === 'edindex') {
+                            componentValue = yearData.edindex;
+                            nationalComponentValue = yearData.country_edindex;
+                        } else if (this.mapType === 'incindex') {
+                            componentValue = yearData.incindex;
+                            nationalComponentValue = yearData.country_incindex;
+                        }
                         
-                        return getColorForComponentDeviation(componentValue, yearData.country_avg_shdi, this.mapType);
+                        return getColorForComponentDeviation(componentValue, nationalComponentValue, this.mapType);
                     }
                     return COMPONENT_COLORS.missing;
                 })
@@ -451,13 +459,21 @@ class D3Map {
                         const deviation = yearData ? yearData.hdi_deviation : null;
                         return deviation !== null ? 0.85 : 0.3;
                     }
-                    // Bottom maps: check if component and country average HDI both exist
-                    if (yearData && yearData.country_avg_shdi !== null) {
+                    // Bottom maps: check if component and national component value both exist
+                    if (yearData) {
                         let componentValue = null;
-                        if (this.mapType === 'healthindex') componentValue = yearData.healthindex;
-                        else if (this.mapType === 'edindex') componentValue = yearData.edindex;
-                        else if (this.mapType === 'incindex') componentValue = yearData.incindex;
-                        return componentValue !== null ? 0.85 : 0.3;
+                        let nationalComponentValue = null;
+                        if (this.mapType === 'healthindex') {
+                            componentValue = yearData.healthindex;
+                            nationalComponentValue = yearData.country_healthindex;
+                        } else if (this.mapType === 'edindex') {
+                            componentValue = yearData.edindex;
+                            nationalComponentValue = yearData.country_edindex;
+                        } else if (this.mapType === 'incindex') {
+                            componentValue = yearData.incindex;
+                            nationalComponentValue = yearData.country_incindex;
+                        }
+                        return (componentValue !== null && nationalComponentValue !== null) ? 0.85 : 0.3;
                     }
                     return 0.3;
                 })
@@ -482,21 +498,28 @@ class D3Map {
                             tooltipText = `${name}<br>No data`;
                     }
                 } else {
-                        // Bottom maps show component deviation from country average HDI
+                        // Bottom maps show component deviation from national component value
                         let componentValue = null;
-                        const countryAvg = yearData ? yearData.country_avg_shdi : null;
+                        let nationalComponentValue = null;
                         const label = this.mapType === 'healthindex' ? 'Health' : (this.mapType === 'edindex' ? 'Education' : 'Income');
                         
                         if (yearData) {
-                            if (this.mapType === 'healthindex') componentValue = yearData.healthindex;
-                            else if (this.mapType === 'edindex') componentValue = yearData.edindex;
-                            else if (this.mapType === 'incindex') componentValue = yearData.incindex;
+                            if (this.mapType === 'healthindex') {
+                                componentValue = yearData.healthindex;
+                                nationalComponentValue = yearData.country_healthindex;
+                            } else if (this.mapType === 'edindex') {
+                                componentValue = yearData.edindex;
+                                nationalComponentValue = yearData.country_edindex;
+                            } else if (this.mapType === 'incindex') {
+                                componentValue = yearData.incindex;
+                                nationalComponentValue = yearData.country_incindex;
+                            }
                         }
                         
-                        if (componentValue !== null && countryAvg !== null) {
-                            const deviation = componentValue - countryAvg;
+                        if (componentValue !== null && nationalComponentValue !== null) {
+                            const deviation = componentValue - nationalComponentValue;
                             const sign = deviation >= 0 ? '+' : '';
-                            tooltipText = `${name}<br>${label}: ${componentValue.toFixed(3)}<br>National HDI: ${countryAvg.toFixed(3)}<br>Deviation: ${sign}${deviation.toFixed(3)}`;
+                            tooltipText = `${name}<br>${label}: ${componentValue.toFixed(3)}<br>National ${label}: ${nationalComponentValue.toFixed(3)}<br>Deviation: ${sign}${deviation.toFixed(3)}`;
                         } else {
                             tooltipText = `${name}<br>No data`;
                         }
@@ -1021,14 +1044,14 @@ Promise.all([
         }
     });
 
-    // Add deviation to dataLookup using national HDI from nationalLookup
+    // Add deviation to dataLookup using national HDI and component values from nationalLookup
     Object.keys(dataLookup).forEach(gdlcode => {
         const isocode = gdlcodeToIso[gdlcode];
         Object.keys(dataLookup[gdlcode]).forEach(year => {
             const entry = dataLookup[gdlcode][year];
             const yearNum = parseInt(year, 10);
             
-            // Get national HDI from nationalLookup
+            // Get national data from nationalLookup
             const nationalData = isocode && nationalLookup[isocode] && nationalLookup[isocode][yearNum];
             const countryHdi = nationalData ? nationalData.hdi : null;
             
@@ -1039,6 +1062,11 @@ Promise.all([
                 entry.country_avg_shdi = null;
                 entry.hdi_deviation = null;
             }
+            
+            // Store national component values for component-specific deviation calculations
+            entry.country_healthindex = nationalData ? nationalData.healthindex : null;
+            entry.country_edindex = nationalData ? nationalData.edindex : null;
+            entry.country_incindex = nationalData ? nationalData.incindex : null;
         });
     });
 
@@ -1411,19 +1439,28 @@ function getColorForBottleneck(bottleneck, componentType) {
     return interpolateColor('#ffffff', '#0066cc', normalized);
 }
 
-// Get component deviation from HDI value range (for bottom maps)
+// Get component deviation from national component value range (for bottom maps)
 function getComponentDeviationRange(componentType) {
     const deviations = [];
     Object.keys(dataLookup).forEach(gdlcode => {
         const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
-        if (yearData && yearData.country_avg_shdi !== null) {
+        if (yearData) {
             let componentValue = null;
-            if (componentType === 'healthindex') componentValue = yearData.healthindex;
-            else if (componentType === 'edindex') componentValue = yearData.edindex;
-            else if (componentType === 'incindex') componentValue = yearData.incindex;
+            let nationalComponentValue = null;
+            if (componentType === 'healthindex') {
+                componentValue = yearData.healthindex;
+                nationalComponentValue = yearData.country_healthindex;
+            } else if (componentType === 'edindex') {
+                componentValue = yearData.edindex;
+                nationalComponentValue = yearData.country_edindex;
+            } else if (componentType === 'incindex') {
+                componentValue = yearData.incindex;
+                nationalComponentValue = yearData.country_incindex;
+            }
             
-            if (componentValue !== null && !isNaN(componentValue)) {
-                const deviation = componentValue - yearData.country_avg_shdi;
+            if (componentValue !== null && !isNaN(componentValue) &&
+                nationalComponentValue !== null && !isNaN(nationalComponentValue)) {
+                const deviation = componentValue - nationalComponentValue;
                 deviations.push(Math.abs(deviation));
             }
         }
@@ -1444,17 +1481,23 @@ function getSharedComponentDeviationRange() {
     const allDeviations = [];
     Object.keys(dataLookup).forEach(gdlcode => {
         const yearData = dataLookup[gdlcode] && dataLookup[gdlcode][currentYear];
-        if (yearData && yearData.country_avg_shdi !== null) {
-            if (yearData.healthindex !== null && !isNaN(yearData.healthindex)) {
-                const deviation = yearData.healthindex - yearData.country_avg_shdi;
+        if (yearData) {
+            // Health: compare regional healthindex to national healthindex
+            if (yearData.healthindex !== null && !isNaN(yearData.healthindex) &&
+                yearData.country_healthindex !== null && !isNaN(yearData.country_healthindex)) {
+                const deviation = yearData.healthindex - yearData.country_healthindex;
                 allDeviations.push(Math.abs(deviation));
             }
-            if (yearData.edindex !== null && !isNaN(yearData.edindex)) {
-                const deviation = yearData.edindex - yearData.country_avg_shdi;
+            // Education: compare regional edindex to national edindex
+            if (yearData.edindex !== null && !isNaN(yearData.edindex) &&
+                yearData.country_edindex !== null && !isNaN(yearData.country_edindex)) {
+                const deviation = yearData.edindex - yearData.country_edindex;
                 allDeviations.push(Math.abs(deviation));
             }
-            if (yearData.incindex !== null && !isNaN(yearData.incindex)) {
-                const deviation = yearData.incindex - yearData.country_avg_shdi;
+            // Income: compare regional incindex to national incindex
+            if (yearData.incindex !== null && !isNaN(yearData.incindex) &&
+                yearData.country_incindex !== null && !isNaN(yearData.country_incindex)) {
+                const deviation = yearData.incindex - yearData.country_incindex;
                 allDeviations.push(Math.abs(deviation));
             }
         }
@@ -1684,7 +1727,7 @@ function updateLegend(mapType, legendId, title) {
         const gradientCSS = createGradientCSS(mapType, true);
         
         legendEl.innerHTML = `
-            <div class="legend-title">${title} (vs National HDI)</div>
+            <div class="legend-title">${title} (vs National)</div>
             <div class="legend-gradient-container">
                 <div class="legend-gradient" style="background: ${gradientCSS};"></div>
                 <div class="legend-labels">
@@ -1705,7 +1748,7 @@ function updateLegend(mapType, legendId, title) {
         const gradientCSS = createGradientCSS('shdi', true); // Use same red-white-green gradient
         
         legendEl.innerHTML = `
-            <div class="legend-title">${title} (vs National HDI)</div>
+            <div class="legend-title">${title} (vs National)</div>
             <div class="legend-gradient-container">
                 <div class="legend-gradient" style="background: ${gradientCSS};"></div>
                 <div class="legend-labels">
