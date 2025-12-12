@@ -477,7 +477,7 @@ class D3Map {
                     if (deviation !== null && hdi !== null) {
                         const sign = deviation >= 0 ? '+' : '';
                         const avgText = countryAvg !== null ? countryAvg.toFixed(3) : 'N/A';
-                            tooltipText = `${name}<br>SHDI: ${hdi.toFixed(3)}<br>Country Avg: ${avgText}<br>Deviation: ${sign}${deviation.toFixed(3)}`;
+                            tooltipText = `${name}<br>SHDI: ${hdi.toFixed(3)}<br>National HDI: ${avgText}<br>Deviation: ${sign}${deviation.toFixed(3)}`;
                     } else {
                             tooltipText = `${name}<br>No data`;
                     }
@@ -496,7 +496,7 @@ class D3Map {
                         if (componentValue !== null && countryAvg !== null) {
                             const deviation = componentValue - countryAvg;
                             const sign = deviation >= 0 ? '+' : '';
-                            tooltipText = `${name}<br>${label}: ${componentValue.toFixed(3)}<br>Country Avg SHDI: ${countryAvg.toFixed(3)}<br>Deviation: ${sign}${deviation.toFixed(3)}`;
+                            tooltipText = `${name}<br>${label}: ${componentValue.toFixed(3)}<br>National HDI: ${countryAvg.toFixed(3)}<br>Deviation: ${sign}${deviation.toFixed(3)}`;
                         } else {
                             tooltipText = `${name}<br>No data`;
                         }
