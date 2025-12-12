@@ -258,14 +258,14 @@ class D3Map {
                                 return getColorForHdiVariance(varianceData.hdiVariance);
                             }
                         } else {
-                            // Bottom maps: component variance
-                            let variance = null;
-                            if (this.mapType === 'healthindex') variance = varianceData.healthVariance;
-                            else if (this.mapType === 'edindex') variance = varianceData.edVariance;
-                            else if (this.mapType === 'incindex') variance = varianceData.incVariance;
+                            // Bottom maps: component bottleneck (how much component lags behind others)
+                            let bottleneck = null;
+                            if (this.mapType === 'healthindex') bottleneck = varianceData.healthBottleneck;
+                            else if (this.mapType === 'edindex') bottleneck = varianceData.edBottleneck;
+                            else if (this.mapType === 'incindex') bottleneck = varianceData.incBottleneck;
                             
-                            if (variance !== null && variance !== undefined) {
-                                return getColorForVariance(variance, this.mapType);
+                            if (bottleneck !== null && bottleneck !== undefined) {
+                                return getColorForBottleneck(bottleneck, this.mapType);
                             }
                         }
                     }
@@ -333,26 +333,54 @@ class D3Map {
                     const iso = findIsoFromProps(d.properties);
                     name = (d.properties.name || d.properties.ADMIN || d.properties.country || iso) || iso;
                     
-                    // For national level maps, show variance info
+                    // For national level maps, show variance/bottleneck info
                     if (iso) {
                         const varianceKey = `${iso}_${currentYear}`;
                         const varianceData = countryComponentVariance[varianceKey];
                         if (varianceData) {
-                            let variance = null;
-                            if (this.mapType === 'shdi') { variance = varianceData.hdiVariance; label = 'Regional SHDI variance'; }
-                            else if (this.mapType === 'healthindex') { variance = varianceData.healthVariance; label = 'Regional Health variance'; }
-                            else if (this.mapType === 'edindex') { variance = varianceData.edVariance; label = 'Regional Education variance'; }
-                            else if (this.mapType === 'incindex') { variance = varianceData.incVariance; label = 'Regional Income variance'; }
-                            
-                            if (variance !== null) {
-                                const stdDev = Math.sqrt(variance);
-                                const tooltipText = `${name}<br>${label}: ${variance.toFixed(4)}<br>Regions: ${varianceData.regionCount}`;
-                                this.tooltip
-                                    .html(tooltipText)
-                                    .style('opacity', 1)
-                                    .style('left', (event.pageX + 10) + 'px')
-                                    .style('top', (event.pageY - 10) + 'px');
-                                return;
+                            // Top map: HDI variance
+                            if (this.mapType === 'shdi') {
+                                const variance = varianceData.hdiVariance;
+                                if (variance !== null) {
+                                    const tooltipText = `${name}<br>Regional SHDI variance: ${variance.toFixed(4)}<br>Regions: ${varianceData.regionCount}`;
+                                    this.tooltip
+                                        .html(tooltipText)
+                                        .style('opacity', 1)
+                                        .style('left', (event.pageX + 10) + 'px')
+                                        .style('top', (event.pageY - 10) + 'px');
+                                    return;
+                                }
+                            } else {
+                                // Bottom maps: component bottleneck (using national values)
+                                let bottleneck = null;
+                                let natValue = null;
+                                let componentName = '';
+                                if (this.mapType === 'healthindex') { 
+                                    bottleneck = varianceData.healthBottleneck; 
+                                    natValue = varianceData.natHealth;
+                                    componentName = 'Health';
+                                } else if (this.mapType === 'edindex') { 
+                                    bottleneck = varianceData.edBottleneck; 
+                                    natValue = varianceData.natEd;
+                                    componentName = 'Education';
+                                } else if (this.mapType === 'incindex') { 
+                                    bottleneck = varianceData.incBottleneck; 
+                                    natValue = varianceData.natInc;
+                                    componentName = 'Income';
+                                }
+                                
+                                if (bottleneck !== null) {
+                                    const natText = natValue !== null ? natValue.toFixed(3) : 'N/A';
+                                    // Only show positive bottleneck values (component lagging)
+                                    const displayBottleneck = Math.max(0, bottleneck).toFixed(3);
+                                    const tooltipText = `${name}<br>${componentName} Index: ${natText}<br>Bottleneck: ${displayBottleneck}<br>Regions: ${varianceData.regionCount}`;
+                                    this.tooltip
+                                        .html(tooltipText)
+                                        .style('opacity', 1)
+                                        .style('left', (event.pageX + 10) + 'px')
+                                        .style('top', (event.pageY - 10) + 'px');
+                                    return;
+                                }
                             }
                         }
                     }
@@ -984,37 +1012,29 @@ Promise.all([
         };
     });
 
-    // Compute country average HDI and deviation for each region
-    // Group regions by country and year
-    const countryYearGroups = {};
+    // Compute country HDI deviation for each region using NATIONAL HDI (not regional average)
+    // First, build a mapping from gdlcode to isocode3
+    const gdlcodeToIso = {};
     processedRows.forEach(row => {
-        if (!row.country || row.shdi === null) return;
-        const key = `${row.country}_${row.year}`;
-        if (!countryYearGroups[key]) {
-            countryYearGroups[key] = { country: row.country, year: row.year, values: [] };
-        }
-        countryYearGroups[key].values.push(row.shdi);
-    });
-
-    // Calculate country averages
-    const countryAvgHdi = {};
-    Object.values(countryYearGroups).forEach(group => {
-        if (group.values.length > 0) {
-            const avg = group.values.reduce((a, b) => a + b, 0) / group.values.length;
-            const key = `${group.country}_${group.year}`;
-            countryAvgHdi[key] = avg;
+        if (row.gdlcode && row.isocode3) {
+            gdlcodeToIso[row.gdlcode] = row.isocode3.toUpperCase();
         }
     });
 
-    // Add deviation to dataLookup
+    // Add deviation to dataLookup using national HDI from nationalLookup
     Object.keys(dataLookup).forEach(gdlcode => {
+        const isocode = gdlcodeToIso[gdlcode];
         Object.keys(dataLookup[gdlcode]).forEach(year => {
             const entry = dataLookup[gdlcode][year];
-            const key = `${entry.country}_${year}`;
-            const countryAvg = countryAvgHdi[key];
-            if (countryAvg !== undefined && entry.shdi !== null) {
-                entry.country_avg_shdi = countryAvg;
-                entry.hdi_deviation = entry.shdi - countryAvg;
+            const yearNum = parseInt(year, 10);
+            
+            // Get national HDI from nationalLookup
+            const nationalData = isocode && nationalLookup[isocode] && nationalLookup[isocode][yearNum];
+            const countryHdi = nationalData ? nationalData.hdi : null;
+            
+            if (countryHdi !== null && entry.shdi !== null) {
+                entry.country_avg_shdi = countryHdi;
+                entry.hdi_deviation = entry.shdi - countryHdi;
             } else {
                 entry.country_avg_shdi = null;
                 entry.hdi_deviation = null;
@@ -1022,7 +1042,7 @@ Promise.all([
         });
     });
 
-    // Calculate component variance per country per year
+    // Calculate component variance per country per year (from regional data)
     // Group component values by ISO code and year (using isocode3 from subnational data)
     const countryComponentGroups = {};
     processedRows.forEach(row => {
@@ -1031,7 +1051,7 @@ Promise.all([
         if (!countryComponentGroups[key]) {
             countryComponentGroups[key] = {
                 isocode3: row.isocode3,
-            country: row.country,
+                country: row.country,
                 year: row.year,
                 hdi: [],
                 health: [],
@@ -1049,7 +1069,7 @@ Promise.all([
     Object.values(countryComponentGroups).forEach(group => {
         const key = `${group.isocode3}_${group.year}`;
         
-        // Calculate variance: sum((x - mean)^2) / n
+        // Calculate variance from regional data: sum((x - mean)^2) / n
         const calcVariance = (values) => {
             if (values.length < 2) return 0;
             const mean = values.reduce((a, b) => a + b, 0) / values.length;
@@ -1057,11 +1077,44 @@ Promise.all([
             return squaredDiffs.reduce((a, b) => a + b, 0) / values.length;
         };
         
+        // Get NATIONAL component values from nationalLookup (not regional averages)
+        const nationalData = nationalLookup[group.isocode3] && nationalLookup[group.isocode3][group.year];
+        const natHealth = nationalData ? nationalData.healthindex : null;
+        const natEd = nationalData ? nationalData.edindex : null;
+        const natInc = nationalData ? nationalData.incindex : null;
+        const natHdi = nationalData ? nationalData.hdi : null;
+        
+        // Calculate bottleneck metric using NATIONAL component values:
+        // For component X: Avg(otherComponent1 - X, otherComponent2 - X)
+        // Positive = component is lagging (bottleneck), Negative = component is ahead
+        let healthBottleneck = null;
+        let edBottleneck = null;
+        let incBottleneck = null;
+        
+        if (natHealth !== null && natEd !== null && natInc !== null) {
+            // Health bottleneck: Avg(education - health, income - health)
+            healthBottleneck = ((natEd - natHealth) + (natInc - natHealth)) / 2;
+            // Education bottleneck: Avg(health - education, income - education)
+            edBottleneck = ((natHealth - natEd) + (natInc - natEd)) / 2;
+            // Income bottleneck: Avg(health - income, education - income)
+            incBottleneck = ((natHealth - natInc) + (natEd - natInc)) / 2;
+        }
+        
         countryComponentVariance[key] = {
+            // Variance still calculated from regional data (for top map)
             hdiVariance: calcVariance(group.hdi),
             healthVariance: calcVariance(group.health),
             edVariance: calcVariance(group.education),
             incVariance: calcVariance(group.income),
+            // Bottleneck metrics using NATIONAL values (for bottom maps)
+            healthBottleneck: healthBottleneck,
+            edBottleneck: edBottleneck,
+            incBottleneck: incBottleneck,
+            // National component values for tooltip
+            natHealth: natHealth,
+            natEd: natEd,
+            natInc: natInc,
+            natHdi: natHdi,
             regionCount: Math.max(group.hdi.length, group.health.length, group.education.length, group.income.length)
         };
     });
@@ -1305,6 +1358,56 @@ function getColorForVariance(variance, componentType) {
     const normalized = Math.min(1, variance / range.max);
     
     // Use blue for all component variance (same as deviation positive)
+    return interpolateColor('#ffffff', '#0066cc', normalized);
+}
+
+// Get shared bottleneck range across all three component types (for national level)
+function getSharedBottleneckRange() {
+    const allBottlenecks = [];
+    Object.keys(countryComponentVariance).forEach(key => {
+        if (!key.endsWith(`_${currentYear}`)) return;
+        const data = countryComponentVariance[key];
+        
+        if (data.healthBottleneck !== null && data.healthBottleneck !== undefined && !isNaN(data.healthBottleneck)) {
+            allBottlenecks.push(Math.abs(data.healthBottleneck));
+        }
+        if (data.edBottleneck !== null && data.edBottleneck !== undefined && !isNaN(data.edBottleneck)) {
+            allBottlenecks.push(Math.abs(data.edBottleneck));
+        }
+        if (data.incBottleneck !== null && data.incBottleneck !== undefined && !isNaN(data.incBottleneck)) {
+            allBottlenecks.push(Math.abs(data.incBottleneck));
+        }
+    });
+    
+    if (allBottlenecks.length === 0) {
+        return { min: 0, max: 0.1 };
+    }
+    
+    return {
+        min: 0,
+        max: Math.max(...allBottlenecks)
+    };
+}
+
+// Get color for bottleneck value (white to blue, only positive values matter)
+function getColorForBottleneck(bottleneck, componentType) {
+    if (bottleneck === null || bottleneck === undefined || isNaN(bottleneck)) {
+        return COMPONENT_COLORS.missing;
+    }
+    
+    // Only care about positive values (component lagging behind others)
+    // Negative values (component ahead) are treated as 0
+    const effectiveBottleneck = Math.max(0, bottleneck);
+    
+    const range = getSharedBottleneckRange();
+    if (range.max === 0) {
+        return '#ffffff';
+    }
+    
+    // Normalize to 0-1 range
+    const normalized = Math.min(1, effectiveBottleneck / range.max);
+    
+    // White to blue: more blue = bigger bottleneck
     return interpolateColor('#ffffff', '#0066cc', normalized);
 }
 
@@ -1581,7 +1684,7 @@ function updateLegend(mapType, legendId, title) {
         const gradientCSS = createGradientCSS(mapType, true);
         
         legendEl.innerHTML = `
-            <div class="legend-title">${title} (vs Country Avg)</div>
+            <div class="legend-title">${title} (vs National HDI)</div>
             <div class="legend-gradient-container">
                 <div class="legend-gradient" style="background: ${gradientCSS};"></div>
                 <div class="legend-labels">
@@ -1602,7 +1705,7 @@ function updateLegend(mapType, legendId, title) {
         const gradientCSS = createGradientCSS('shdi', true); // Use same red-white-green gradient
         
         legendEl.innerHTML = `
-            <div class="legend-title">${title} (vs Country Avg)</div>
+            <div class="legend-title">${title} (vs National HDI)</div>
             <div class="legend-gradient-container">
                 <div class="legend-gradient" style="background: ${gradientCSS};"></div>
                 <div class="legend-labels">
@@ -1636,20 +1739,20 @@ function updateLegend(mapType, legendId, title) {
         return;
     }
     
-    // National view: bottom maps show variance
+    // National view: bottom maps show bottleneck (white to blue, positive values only)
     if ((mapType === 'healthindex' || mapType === 'edindex' || mapType === 'incindex') && !isShowingSubnational) {
-        const range = getSharedComponentVarianceRange();
-        const maxVar = range.max.toFixed(4);
+        const range = getSharedBottleneckRange();
+        const maxVal = range.max.toFixed(3);
         
-        // Use white to blue gradient for component variance
+        // White to blue gradient: more blue = bigger bottleneck
         const gradientCSS = 'linear-gradient(to top, #ffffff, #0066cc)';
         
         legendEl.innerHTML = `
-            <div class="legend-title">${title} Variance</div>
+            <div class="legend-title">${title} Bottleneck</div>
             <div class="legend-gradient-container">
                 <div class="legend-gradient" style="background: ${gradientCSS};"></div>
                 <div class="legend-labels">
-                    <span class="legend-label-top">${maxVar}</span>
+                    <span class="legend-label-top">${maxVal}</span>
                     <span class="legend-label-bottom">0</span>
                 </div>
             </div>
@@ -2143,45 +2246,25 @@ function updateChartData() {
         return bottleneck ? COMPONENT_COLORS[bottleneck] : COMPONENT_COLORS.missing;
     });
     
-    const backgroundDatasets = [];
-    if (bottleneckColors.length > 0) {
-        let currentColor = bottleneckColors[0] || COMPONENT_COLORS.missing;
-        let segmentStart = 0;
-        
-        for (let i = 1; i <= bottleneckColors.length; i++) {
-            if (i === bottleneckColors.length || bottleneckColors[i] !== currentColor) {
-                const segmentData = new Array(data.years.length).fill(null);
-                // Use half-open interval [start, end) - inclusive start, exclusive end
-                const endIndex = i;
-                for (let j = segmentStart; j < endIndex && j < data.years.length; j++) {
-                    segmentData[j] = 1.0;
-                }
-                
-                const hex = (currentColor || COMPONENT_COLORS.missing).replace('#', '');
-                const r = parseInt(hex.substring(0, 2), 16);
-                const g = parseInt(hex.substring(2, 4), 16);
-                const b = parseInt(hex.substring(4, 6), 16);
-                
-                backgroundDatasets.push({
-                    label: '',
-                    data: segmentData,
-                    backgroundColor: `rgba(${r}, ${g}, ${b}, 0.2)`,
-                    borderWidth: 0,
-                    pointRadius: 0,
-                    fill: 'origin',
-                    order: 0,
-                    showLine: false,
-                    tension: 0
-                });
-                
-                if (i < bottleneckColors.length) {
-                    currentColor = bottleneckColors[i] || COMPONENT_COLORS.missing;
-                    // Next segment starts at current index (exclusive end becomes inclusive start)
-                    segmentStart = i;
-                }
-            }
-        }
-    }
+    // Create a single bar dataset where each bar is colored by its bottleneck
+    const backgroundColors = bottleneckColors.map(color => {
+        const hex = (color || COMPONENT_COLORS.missing).replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, 0.2)`;
+    });
+    
+    const backgroundDatasets = [{
+        label: '',
+        data: new Array(data.years.length).fill(1.0),
+        backgroundColor: backgroundColors,
+        borderWidth: 0,
+        barPercentage: 1.0,
+        categoryPercentage: 1.0,
+        order: 0,
+        type: 'bar'
+    }];
     
     // Update chart data
     chart.data.labels = data.years;
@@ -2239,6 +2322,18 @@ function updateChartData() {
     if (chartContainer) {
         chartContainer.style.display = 'block';
         void chartContainer.offsetHeight; // Force reflow
+    }
+    
+    // Recalculate Y-axis bounds based on new data
+    const allValues = [...shdiData, ...healthData, ...edData, ...incData]
+        .filter(v => v !== null && v !== undefined && !isNaN(v));
+    if (allValues.length > 0) {
+        const minVal = Math.min(...allValues);
+        const maxVal = Math.max(...allValues);
+        const range = maxVal - minVal;
+        const padding = Math.max(0.02, range * 0.1); // At least 0.02 or 10% of range
+        chart.options.scales.y.min = Math.max(0, Math.floor((minVal - padding) * 20) / 20);
+        chart.options.scales.y.max = Math.min(1, Math.ceil((maxVal + padding) * 20) / 20);
     }
     
     chart.update('none'); // Update without animation
@@ -2345,45 +2440,25 @@ function updateChart() {
         return bottleneck ? COMPONENT_COLORS[bottleneck] : COMPONENT_COLORS.missing;
     });
     
-    const backgroundDatasets = [];
-    if (bottleneckColors.length > 0) {
-        let currentColor = bottleneckColors[0] || COMPONENT_COLORS.missing;
-        let segmentStart = 0;
-        
-        for (let i = 1; i <= bottleneckColors.length; i++) {
-            if (i === bottleneckColors.length || bottleneckColors[i] !== currentColor) {
-                const segmentData = new Array(data.years.length).fill(null);
-                // Use half-open interval [start, end) - inclusive start, exclusive end
-                const endIndex = i;
-                for (let j = segmentStart; j < endIndex && j < data.years.length; j++) {
-                    segmentData[j] = 1.0;
-                }
-                
-                const hex = (currentColor || COMPONENT_COLORS.missing).replace('#', '');
-                const r = parseInt(hex.substring(0, 2), 16);
-                const g = parseInt(hex.substring(2, 4), 16);
-                const b = parseInt(hex.substring(4, 6), 16);
-                
-                backgroundDatasets.push({
-                    label: '',
-                    data: segmentData,
-                    backgroundColor: `rgba(${r}, ${g}, ${b}, 0.2)`,
-                    borderWidth: 0,
-                    pointRadius: 0,
-                    fill: 'origin',
-                    order: 0,
-                    showLine: false,
-                    tension: 0
-                });
-                
-                if (i < bottleneckColors.length) {
-                    currentColor = bottleneckColors[i] || COMPONENT_COLORS.missing;
-                    // Next segment starts at current index (exclusive end becomes inclusive start)
-                    segmentStart = i;
-                }
-            }
-        }
-    }
+    // Create a single bar dataset where each bar is colored by its bottleneck
+    const backgroundColors = bottleneckColors.map(color => {
+        const hex = (color || COMPONENT_COLORS.missing).replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, 0.2)`;
+    });
+    
+    const backgroundDatasets = [{
+        label: '',
+        data: new Array(data.years.length).fill(1.0),
+        backgroundColor: backgroundColors,
+        borderWidth: 0,
+        barPercentage: 1.0,
+        categoryPercentage: 1.0,
+        order: 0,
+        type: 'bar'
+    }];
     
     try {
         if (typeof Chart === 'undefined') {
@@ -2463,8 +2538,28 @@ function updateChart() {
                 },
                 scales: {
                     y: {
-                        beginAtZero: true,
-                        max: 1,
+                        beginAtZero: false,
+                        // Dynamic min/max calculated from data with padding
+                        min: (() => {
+                            const allValues = [...shdiData, ...healthData, ...edData, ...incData]
+                                .filter(v => v !== null && v !== undefined && !isNaN(v));
+                            if (allValues.length === 0) return 0;
+                            const minVal = Math.min(...allValues);
+                            const maxVal = Math.max(...allValues);
+                            const range = maxVal - minVal;
+                            const padding = Math.max(0.02, range * 0.1); // At least 0.02 or 10% of range
+                            return Math.max(0, Math.floor((minVal - padding) * 20) / 20); // Round down to nearest 0.05
+                        })(),
+                        max: (() => {
+                            const allValues = [...shdiData, ...healthData, ...edData, ...incData]
+                                .filter(v => v !== null && v !== undefined && !isNaN(v));
+                            if (allValues.length === 0) return 1;
+                            const minVal = Math.min(...allValues);
+                            const maxVal = Math.max(...allValues);
+                            const range = maxVal - minVal;
+                            const padding = Math.max(0.02, range * 0.1); // At least 0.02 or 10% of range
+                            return Math.min(1, Math.ceil((maxVal + padding) * 20) / 20); // Round up to nearest 0.05
+                        })(),
                         title: {
                             display: true,
                             text: 'Index Value',
@@ -2735,7 +2830,8 @@ function updateHorizonChart() {
     const container = d3.select("#horizon-chart");
     const svg = container.append("svg")
         .attr("viewBox", `0 0 ${horizonWidth} ${height}`)
-        .style("font", "12px sans-serif");
+        .style("font-size", "12px")
+        .style("font-family", "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif");
     
     // Hover line (created early so it can be used in event handlers)
     const horizonHoverLine = svg.append("line")
@@ -2882,13 +2978,22 @@ function updateHorizonChart() {
                 if (r.point) {
                     const origNum = r.point.originalNum;
                     const origRaw = r.point.originalRaw;
-                    const displayVal = (typeof origNum === "number" && !isNaN(origNum)) ? origNum : (origRaw && String(origRaw).trim() !== "" ? origRaw : "missing");
+                    // Format numbers to 3 decimal places
+                    const displayVal = (typeof origNum === "number" && !isNaN(origNum)) 
+                        ? origNum.toFixed(3) 
+                        : (origRaw && String(origRaw).trim() !== "" ? origRaw : "missing");
                     horizonTooltip.style("display", "block").html(`<strong>${series.label}</strong>: ${displayVal}<br/><small>${year}</small>`);
                 } else {
                     const rowIndex = dates.findIndex(d => d && d.getUTCFullYear() === year);
                     const rawCell = (rowIndex === -1) ? "" : rawMatrix[series.key][rowIndex];
                     const isMissing = rawCell == null || String(rawCell).trim() === "";
-                    horizonTooltip.style("display", "block").html(`<strong>${series.label}</strong>: ${isMissing ? "<em>missing</em>" : rawCell}<br/><small>${year}</small>`);
+                    // Format raw cell value if it's a number
+                    let displayCell = rawCell;
+                    if (!isMissing) {
+                        const numVal = parseFloat(rawCell);
+                        displayCell = (!isNaN(numVal)) ? numVal.toFixed(3) : rawCell;
+                    }
+                    horizonTooltip.style("display", "block").html(`<strong>${series.label}</strong>: ${isMissing ? "<em>missing</em>" : displayCell}<br/><small>${year}</small>`);
                 }
                 horizonHoverLine.attr("x1", r.cx).attr("x2", r.cx).style("display", null);
                 svg.node().appendChild(horizonHoverLine.node());

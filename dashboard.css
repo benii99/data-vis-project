@@ -459,7 +459,8 @@ body {
 }
 
 .horizon-label {
-    font: 14px sans-serif;
+    font-size: 14px;
+    font-family: inherit;
     fill: #111;
 }
 
@@ -477,7 +478,8 @@ body {
     padding: 6px 8px;
     border-radius: 4px;
     box-shadow: 0 2px 6px rgba(0,0,0,.12);
-    font: 13px sans-serif;
+    font-size: 13px;
+    font-family: inherit;
     color: #111;
     white-space: nowrap;
     z-index: 10;
@@ -504,7 +506,8 @@ body {
     margin-top: 10px;
     display: block;
     width: 100%;
-    font: 13px sans-serif;
+    font-size: 13px;
+    font-family: inherit;
     color: #111;
 }
 
